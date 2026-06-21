@@ -50,17 +50,23 @@ html, body, #root {
 .big-btn.join { background: #aee3ff; }
 
 .divider { opacity: 0.6; margin: 8px 0; }
-.join-row { display: flex; gap: 8px; }
+.join-row { display: flex; gap: 10px; align-items: stretch; }
 .code-input {
   font-family: inherit;
-  font-size: 1.8rem;
-  width: 6ch;
+  font-size: 2.2rem;
+  font-weight: 700;
+  width: 9ch;
+  padding: 10px 12px;
+  letter-spacing: 0.12rem;
   text-align: center;
   text-transform: uppercase;
   border: 3px solid var(--ink);
   border-radius: 12px;
   background: var(--paper);
+  color: var(--ink);
 }
+.code-input::placeholder { color: var(--ink); opacity: 0.35; }
+.code-input:focus { outline: none; box-shadow: 0 0 0 3px rgba(42,110,224,0.4); }
 .error { color: var(--accent); font-size: 1.4rem; }
 
 .room-code {
