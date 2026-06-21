@@ -1,0 +1,11 @@
+**/node_modules
+**/dist
+client/dist
+server/dist
+shared/dist
+test-results
+playwright-report
+.git
+.gitignore
+*.log
+.claude

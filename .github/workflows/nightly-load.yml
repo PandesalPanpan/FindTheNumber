@@ -1,0 +1,30 @@
+name: Nightly load test
+
+# Non-blocking: runs on a schedule (and on demand), never gates PRs/pushes.
+on:
+  schedule:
+    - cron: '0 7 * * *' # 07:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      rooms:
+        description: Number of rooms (2x connections)
+        default: '500'
+      msgs:
+        description: Relay round-trips per room
+        default: '20'
+
+jobs:
+  loadtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Run load test
+        env:
+          ROOMS: ${{ github.event.inputs.rooms || '500' }}
+          MSGS: ${{ github.event.inputs.msgs || '20' }}
+        run: npm -w server run loadtest

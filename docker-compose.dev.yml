@@ -1,0 +1,37 @@
+# Development stack with hot reload.
+#   docker compose -f docker-compose.dev.yml up
+#
+# Source is bind-mounted; node_modules live in named volumes so host/container
+# installs don't clobber each other. Client: http://localhost:5180
+services:
+  server:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm -w server run dev"
+    environment:
+      PORT: "8787"
+      RECONNECT_GRACE_MS: "15000"
+    volumes:
+      - ./:/app
+      - server_modules:/app/node_modules
+    ports:
+      - "8787:8787"
+
+  client:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm -w client run dev -- --host"
+    environment:
+      # in dev the Vite proxy forwards /ws to the server service
+      VITE_SIGNAL_URL: "ws://localhost:8787"
+    volumes:
+      - ./:/app
+      - client_modules:/app/node_modules
+    ports:
+      - "5180:5180"
+    depends_on:
+      - server
+
+volumes:
+  server_modules:
+  client_modules:

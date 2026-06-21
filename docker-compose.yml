@@ -1,0 +1,32 @@
+# Production stack for Dokploy (or any Docker host).
+#
+# Dokploy: create a "Docker Compose" application pointing at this file, then
+# attach your domain to the `web` service on container port 80. Dokploy's
+# Traefik handles TLS; the client talks to the signaling server over the same
+# origin at /ws, which nginx proxies to the `server` service internally.
+services:
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    environment:
+      PORT: "8787"
+      RECONNECT_GRACE_MS: "15000"
+    expose:
+      - "8787"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+      args:
+        # empty => client connects same-origin at /ws (proxied by nginx).
+        VITE_SIGNAL_URL: ""
+    depends_on:
+      - server
+    # For a standalone host, publish 8080->80. On Dokploy you can drop this and
+    # let its proxy route your domain to container port 80 instead.
+    ports:
+      - "8080:80"
+    restart: unless-stopped
