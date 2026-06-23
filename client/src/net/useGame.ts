@@ -1,20 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  activeFillMs,
   applyEvent,
-  boxesForDuration,
   DEFAULT_CONFIG,
+  GameConfig,
   GameEvent,
   GameState,
   generateSheet,
   needsNewSheet,
+  normalizeConfig,
   Role,
   totalBoxes,
 } from '@ftn/shared';
 import { Signaling } from './signaling.js';
 import { Transport, TransportMode } from './transport.js';
 import { answerPings, syncClock } from './clock.js';
-import { isMuted, setMuted as persistMuted, playBell, playEnd, playScribble } from '../audio.js';
+import {
+  isMuted,
+  setMuted as persistMuted,
+  playBell,
+  playEnd,
+  playFind,
+  playScribble,
+  playYourTurn,
+} from '../audio.js';
 
 export type Status =
   | 'idle'
@@ -39,10 +47,14 @@ export interface GameView {
   activeNumber: number | null;
   bellArmed: boolean;
   myDisplayFill: number;
-  /** exact fractional fill for the caller mid-hold (drives live ink) */
-  myFillExact: number;
-  /** caller is actively pressing & holding their grid */
-  isHolding: boolean;
+  /** set of box indices the caller has X'd in (their own grid only) */
+  myCells: Set<number>;
+  /** box index currently being held, or null */
+  holdingCell: number | null;
+  /** ink-in progress [0,1] of the held cell (0 once committed/idle) */
+  holdFraction: number;
+  /** true while it's the caller's turn to fill (number is active) */
+  canFill: boolean;
   oppDisplayFill: number;
   winner: Role | null;
   iWon: boolean;
@@ -51,26 +63,27 @@ export interface GameView {
   muted: boolean;
   toggleMute: () => void;
   // actions
-  createRoom: () => void;
+  createRoom: (config?: Partial<GameConfig>) => void;
   joinRoom: (code: string) => void;
   callNumber: (value: number) => void;
   clickFind: (value: number) => void;
   ringBell: () => void;
-  holdStart: () => void;
-  holdEnd: () => void;
+  cellDown: (index: number) => void;
+  cellUp: () => void;
   playAgain: () => void;
 }
 
-function buildConfig() {
+function buildConfig(override?: Partial<GameConfig>): GameConfig {
   const p = new URLSearchParams(location.search);
-  const cfg = { ...DEFAULT_CONFIG };
+  const fromUrl: Partial<GameConfig> = {};
   const rate = Number(p.get('rate'));
   const grid = Number(p.get('grid'));
   const count = Number(p.get('count'));
-  if (rate > 0) cfg.fillRateMs = rate;
-  if (grid > 0) cfg.gridSize = grid;
-  if (count > 0) cfg.sheetCount = count;
-  return cfg;
+  if (rate > 0) fromUrl.fillRateMs = rate;
+  if (grid > 0) fromUrl.gridSize = grid;
+  if (count > 0) fromUrl.sheetCount = count;
+  // host's lobby choice wins over URL params; both are clamped to safe ranges
+  return normalizeConfig({ ...fromUrl, ...(override ?? {}) });
 }
 
 function pickFirstCaller(): Role {
@@ -79,8 +92,8 @@ function pickFirstCaller(): Role {
   return Math.random() < 0.5 ? 'host' : 'guest';
 }
 
-function newGameState(firstCaller: Role): GameState {
-  const config = buildConfig();
+function newGameState(firstCaller: Role, override?: Partial<GameConfig>): GameState {
+  const config = buildConfig(override);
   const sheet = generateSheet((Math.random() * 1e9) | 0, config);
   return applyEvent({} as GameState, {
     type: 'START',
@@ -103,15 +116,21 @@ export function useGame(): GameView {
   const [muted, setMutedState] = useState(isMuted());
   const seriesRef = useRef<Record<Role, number>>({ host: 0, guest: 0 });
 
+  // per-cell hold state for the caller's own grid
+  const [holdingCell, setHoldingCell] = useState<number | null>(null);
+  const holdCellStart = useRef(0); // host-time the current cell-hold began
+  const myCells = useRef<Set<number>>(new Set()); // box indices I've X'd in
+
   const sig = useRef<Signaling | null>(null);
   const transport = useRef<Transport | null>(null);
   const offset = useRef(0); // guest's offset to host time
   const synced = useRef(false);
   const stateRef = useRef<GameState | null>(null);
-  const winTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hostDispatchRef = useRef<((e: GameEvent) => void) | null>(null);
   const clientId = useRef<string | null>(null);
   const wired = useRef(false);
+  // host's chosen game config (from the lobby), persisted across rematches
+  const chosenConfig = useRef<Partial<GameConfig> | null>(null);
   const isHost = role === 'host';
 
   const nowHost = useCallback(
@@ -130,29 +149,6 @@ export function useGame(): GameView {
       transport.current?.send({ t: 'state', state: stateRef.current, series: seriesRef.current });
     }
   }, []);
-
-  const clearWinTimer = useCallback(() => {
-    if (winTimer.current) {
-      clearTimeout(winTimer.current);
-      winTimer.current = null;
-    }
-  }, []);
-
-  const scheduleWinTimer = useCallback(() => {
-    // host only: if the caller keeps holding, end exactly when they hit the cap
-    clearWinTimer();
-    const s = stateRef.current;
-    if (!s || s.phase !== 'playing' || s.holdStart === null) return;
-    const cap = totalBoxes(s.config);
-    const remaining = cap - s.filled[s.caller];
-    if (remaining <= 0) return;
-    const msNeeded = remaining * s.config.fillRateMs - s.heldMs;
-    const fireAt = s.holdStart + msNeeded;
-    const delay = Math.max(0, fireAt - Date.now());
-    winTimer.current = setTimeout(() => {
-      hostDispatchRef.current?.({ type: 'BELL', bellTime: fireAt });
-    }, delay);
-  }, [clearWinTimer]);
 
   const hostDispatch = useCallback(
     (event: GameEvent) => {
@@ -177,14 +173,9 @@ export function useGame(): GameView {
       }
       setBoth(next);
       broadcast(); // includes the updated series
-      if (event.type === 'HOLD_START') scheduleWinTimer();
-      if (event.type === 'HOLD_END' || event.type === 'BELL') clearWinTimer();
-      if (next.phase === 'over') {
-        clearWinTimer();
-        setStatus('over');
-      }
+      if (next.phase === 'over') setStatus('over');
     },
-    [broadcast, scheduleWinTimer, clearWinTimer, setBoth],
+    [broadcast, setBoth],
   );
   hostDispatchRef.current = hostDispatch;
 
@@ -199,7 +190,7 @@ export function useGame(): GameView {
           answerPings(t); // serve guest clock sync
           // start the match
           const first: Role = pickFirstCaller();
-          setBoth(newGameState(first));
+          setBoth(newGameState(first, chosenConfig.current ?? undefined));
           broadcast();
           setStatus('playing');
         } else {
@@ -216,11 +207,8 @@ export function useGame(): GameView {
             case 'call':
               hostDispatch({ type: 'CALL', number: msg.number, callTime: msg.callTime });
               break;
-            case 'holdStart':
-              hostDispatch({ type: 'HOLD_START', tStart: msg.t0 });
-              break;
-            case 'holdEnd':
-              hostDispatch({ type: 'HOLD_END', tEnd: msg.t1 });
+            case 'cellFill':
+              hostDispatch({ type: 'CELL_FILL', t: msg.at });
               break;
             case 'bell':
               hostDispatch({ type: 'BELL', bellTime: msg.bellTime });
@@ -312,7 +300,13 @@ export function useGame(): GameView {
   );
 
   // ---------- actions ----------
-  const createRoom = useCallback(() => connect('create'), [connect]);
+  const createRoom = useCallback(
+    (config?: Partial<GameConfig>) => {
+      chosenConfig.current = config ?? null;
+      connect('create');
+    },
+    [connect],
+  );
   const joinRoom = useCallback((code: string) => connect('join', code), [connect]);
 
   const callNumber = useCallback(
@@ -323,15 +317,40 @@ export function useGame(): GameView {
     [isHost, hostDispatch, sendTimed, nowHost],
   );
 
-  const holdStart = useCallback(() => {
-    if (isHost) hostDispatch({ type: 'HOLD_START', tStart: Date.now() });
-    else sendTimed({ t: 'holdStart', t0: nowHost() });
-  }, [isHost, hostDispatch, sendTimed, nowHost]);
+  // commit one fully-held cell: bank it optimistically + tell the host
+  const commitCell = useCallback(
+    (index: number, tDone: number) => {
+      if (myCells.current.has(index)) return;
+      myCells.current.add(index);
+      if (isHost) hostDispatch({ type: 'CELL_FILL', t: tDone });
+      else sendTimed({ t: 'cellFill', at: tDone });
+      if (!isMuted()) {
+        playScribble();
+        try {
+          navigator.vibrate?.(12);
+        } catch {
+          /* haptics best-effort */
+        }
+      }
+      forceTick((n) => n + 1);
+    },
+    [isHost, hostDispatch, sendTimed],
+  );
 
-  const holdEnd = useCallback(() => {
-    if (isHost) hostDispatch({ type: 'HOLD_END', tEnd: Date.now() });
-    else sendTimed({ t: 'holdEnd', t1: nowHost() });
-  }, [isHost, hostDispatch, sendTimed, nowHost]);
+  const cellDown = useCallback(
+    (index: number) => {
+      const s = stateRef.current;
+      if (!s || s.phase !== 'playing' || s.caller !== role || s.activeNumber === null) return;
+      if (myCells.current.has(index)) return; // already filled
+      holdCellStart.current = nowHost();
+      setHoldingCell(index);
+    },
+    [role, nowHost],
+  );
+
+  const cellUp = useCallback(() => {
+    setHoldingCell(null);
+  }, []);
 
   const clickFind = useCallback(
     (value: number) => {
@@ -352,8 +371,10 @@ export function useGame(): GameView {
 
   const playAgain = useCallback(() => {
     if (!isHost) return;
+    myCells.current = new Set();
+    setHoldingCell(null);
     const first: Role = pickFirstCaller();
-    setBoth(newGameState(first));
+    setBoth(newGameState(first, chosenConfig.current ?? undefined));
     broadcast();
     setStatus('playing');
   }, [isHost, setBoth, broadcast]);
@@ -388,27 +409,72 @@ export function useGame(): GameView {
     prevPhase.current = state?.phase;
   }, [state?.phase, state?.winner, role]);
 
-  // animate optimistic fill while I'm the caller and holding
+  // per-cell hold loop: animate the held cell inking in, commit when it's full
   useEffect(() => {
-    const s = state;
-    if (!s || s.phase !== 'playing') return;
-    if (s.caller !== role || s.holdStart === null) return;
+    if (holdingCell === null) return;
+    const idx = holdingCell;
+    if (myCells.current.has(idx)) return; // already committed; nothing to animate
+    const rate = state?.config.fillRateMs ?? DEFAULT_CONFIG.fillRateMs;
     let raf = 0;
     const loop = () => {
+      if (nowHost() - holdCellStart.current >= rate) {
+        // exact completion time keeps the host's budget check latency-immune
+        commitCell(idx, holdCellStart.current + rate);
+        return; // cell full — stop animating until they lift & press another
+      }
       forceTick((n) => n + 1);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
+  }, [holdingCell, state?.config.fillRateMs, nowHost, commitCell]);
+
+  // reconcile my optimistic cell set with the host-authoritative count
+  useEffect(() => {
+    const me = role;
+    if (!state || !me) return;
+    const auth = state.filled[me];
+    const set = myCells.current;
+    if (auth === set.size) return;
+    if (auth < set.size) {
+      // host rejected some (e.g. too fast) — drop highest-index extras
+      const sorted = [...set].sort((a, b) => b - a);
+      for (let i = 0; set.size > auth && i < sorted.length; i++) set.delete(sorted[i]);
+    } else {
+      // fresh state / resync — pad row-major so the count matches
+      const total = totalBoxes(state.config);
+      for (let i = 0; i < total && set.size < auth; i++) set.add(i);
+    }
+    forceTick((n) => n + 1);
   }, [state, role]);
+
+  // end any in-progress hold when the round resolves
+  useEffect(() => {
+    if (state?.activeNumber === null) setHoldingCell(null);
+  }, [state?.activeNumber]);
+
+  // turn cues: caller hears "you're up", searcher hears "find it!"
+  const wasMyCall = useRef(false);
+  const wasMyFind = useRef(false);
+  useEffect(() => {
+    const s = state;
+    const me = role;
+    const myCallTurn =
+      !!s && !!me && s.phase === 'playing' && s.caller === me && s.activeNumber === null;
+    const myFindTurn =
+      !!s && !!me && s.phase === 'playing' && s.caller !== me && s.activeNumber !== null;
+    if (myCallTurn && !wasMyCall.current) playYourTurn();
+    if (myFindTurn && !wasMyFind.current) playFind();
+    wasMyCall.current = myCallTurn;
+    wasMyFind.current = myFindTurn;
+  }, [state?.phase, state?.caller, state?.activeNumber, role, state]);
 
   useEffect(() => {
     return () => {
       transport.current?.destroy();
       sig.current?.close();
-      clearWinTimer();
     };
-  }, [clearWinTimer]);
+  }, []);
 
   // ---------- derived view ----------
   const view = useMemo<GameView>(() => {
@@ -418,19 +484,18 @@ export function useGame(): GameView {
     const isSearcher = !!s && s.caller !== me && s.phase === 'playing';
     const cap = s ? totalBoxes(s.config) : 0;
 
-    let myDisplayFill = s && me ? s.filled[me] : 0;
-    let myFillExact = myDisplayFill;
     const oppRole: Role | null = me ? (me === 'host' ? 'guest' : 'host') : null;
     const oppDisplayFill = s && oppRole ? s.filled[oppRole] : 0;
 
-    // optimistic preview for the caller mid-hold (integer for the count,
-    // fractional for the live ink on the next box)
-    if (s && me && isCaller && s.activeNumber !== null) {
-      const ms = activeFillMs(s, nowHost());
-      myDisplayFill = Math.min(cap, s.filled[me] + boxesForDuration(ms, s.config.fillRateMs));
-      myFillExact = Math.min(cap, s.filled[me] + ms / s.config.fillRateMs);
+    const canFill = isCaller && !!s && s.activeNumber !== null;
+    // own count is the optimistic cell set (reconciled to host authority)
+    const myDisplayFill = Math.min(cap, myCells.current.size);
+
+    let holdFraction = 0;
+    if (canFill && holdingCell !== null && !myCells.current.has(holdingCell)) {
+      const rate = s!.config.fillRateMs;
+      holdFraction = Math.min(1, Math.max(0, (nowHost() - holdCellStart.current) / rate));
     }
-    const isHolding = !!s && isCaller && s.holdStart !== null;
 
     return {
       status,
@@ -445,8 +510,10 @@ export function useGame(): GameView {
       activeNumber: s?.activeNumber ?? null,
       bellArmed,
       myDisplayFill,
-      myFillExact,
-      isHolding,
+      myCells: myCells.current,
+      holdingCell,
+      holdFraction,
+      canFill,
       oppDisplayFill,
       winner: s?.winner ?? null,
       iWon: !!s && s.winner === me,
@@ -459,31 +526,17 @@ export function useGame(): GameView {
       callNumber,
       clickFind,
       ringBell,
-      holdStart,
-      holdEnd,
+      cellDown,
+      cellUp,
       playAgain,
     };
-    // forceTick drives re-eval of the optimistic preview each frame
+    // forceTick (tick) + holdingCell drive re-eval of the live hold each frame
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     status, error, role, roomCode, mode, state, bellArmed, nowHost, tick, series, muted,
-    createRoom, joinRoom, callNumber, clickFind, ringBell, holdStart, holdEnd, playAgain, toggleMute,
+    holdingCell, createRoom, joinRoom, callNumber, clickFind, ringBell, cellDown, cellUp,
+    playAgain, toggleMute,
   ]);
-
-  // scribble SFX + haptic: fire once per box committed while the caller holds
-  const prevFill = useRef(0);
-  useEffect(() => {
-    const f = view.myDisplayFill;
-    if (view.isHolding && f > prevFill.current && !muted) {
-      playScribble();
-      try {
-        navigator.vibrate?.(12);
-      } catch {
-        /* haptics best-effort */
-      }
-    }
-    prevFill.current = f;
-  }, [view.myDisplayFill, view.isHolding, muted]);
 
   return view;
 }

@@ -13,13 +13,69 @@ export const DEFAULT_CONFIG: GameConfig = {
   sheetCount: 30,
   numberMin: 1,
   numberMax: 99,
-  fillRateMs: 400,
+  fillRateMs: 120,
   reconnectGraceMs: 15000,
   iceTimeoutMs: 8000,
 };
 
 export function totalBoxes(config: GameConfig): number {
   return config.gridSize * config.gridSize;
+}
+
+/** Recommended ranges the lobby UI guides hosts toward (presets + inputs). */
+export const CONFIG_LIMITS = {
+  gridSize: { min: 3, max: 12 },
+  sheetCount: { min: 6, max: 90 }, // upper end also capped to the value range
+  fillRateMs: { min: 60, max: 400 },
+} as const;
+
+/** Hard safety bounds the engine enforces on ANY config (UI, URL params, peers)
+ *  so generateSheet/scoring can never crash or hang. Wider than CONFIG_LIMITS:
+ *  this is a guardrail, not a UX preference, so deliberate test/power-user
+ *  values (e.g. a 2x2 grid or a very slow fill rate) still pass through. */
+const SAFETY_LIMITS = {
+  gridSize: { min: 2, max: 24 },
+  fillRateMs: { min: 1, max: 1_000_000 },
+} as const;
+
+/** Named lobby presets. `Normal` is the default (mobile-friendly). */
+export const CONFIG_PRESETS = {
+  quick: { gridSize: 5, sheetCount: 20 },
+  normal: { gridSize: 8, sheetCount: 30 },
+  marathon: { gridSize: 10, sheetCount: 30 },
+} as const satisfies Record<string, Partial<GameConfig>>;
+
+export type PresetName = keyof typeof CONFIG_PRESETS;
+export const DEFAULT_PRESET: PresetName = 'normal';
+
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, n));
+}
+
+/**
+ * Merge a partial override onto DEFAULT_CONFIG and clamp every knob to the hard
+ * SAFETY_LIMITS so the sheet generator and scoring can never crash. `sheetCount`
+ * is additionally capped to the count of distinct values available in
+ * [numberMin, numberMax]. Non-finite inputs fall back to the default. This is a
+ * guardrail only — the lobby UI applies the tighter CONFIG_LIMITS for good UX.
+ */
+export function normalizeConfig(override?: Partial<GameConfig>): GameConfig {
+  const cfg: GameConfig = { ...DEFAULT_CONFIG, ...(override ?? {}) };
+
+  const span = cfg.numberMax - cfg.numberMin + 1;
+  const num = (v: number, def: number) => (Number.isFinite(v) ? v : def);
+
+  cfg.gridSize = Math.round(
+    clamp(num(cfg.gridSize, DEFAULT_CONFIG.gridSize), SAFETY_LIMITS.gridSize.min, SAFETY_LIMITS.gridSize.max),
+  );
+  cfg.fillRateMs = Math.round(
+    clamp(num(cfg.fillRateMs, DEFAULT_CONFIG.fillRateMs), SAFETY_LIMITS.fillRateMs.min, SAFETY_LIMITS.fillRateMs.max),
+  );
+  cfg.sheetCount = Math.round(
+    clamp(num(cfg.sheetCount, DEFAULT_CONFIG.sheetCount), 1, span),
+  );
+
+  return cfg;
 }
 
 export type Role = 'host' | 'guest';
@@ -55,10 +111,10 @@ export interface GameState {
   activeNumber: number | null;
   /** host-time ms when the active number was called */
   callTime: number | null;
-  /** accumulated active fill time for the caller this round (ms) */
-  heldMs: number;
-  /** host-time ms when the current hold began, or null if not holding */
-  holdStart: number | null;
+  /** boxes the caller has banked THIS round (reset on each CALL). Each one is a
+   *  full per-cell hold; the host caps this at the elapsed time budget so a
+   *  caller can never bank faster than floor((now - callTime) / fillRate). */
+  roundFilled: number;
   winner: Role | null;
 }
 
@@ -67,14 +123,8 @@ export interface GameState {
 export type GameEvent =
   | { type: 'START'; firstCaller: Role; sheet: Sheet; config: GameConfig }
   | { type: 'CALL'; number: number; callTime: number }
-  | { type: 'HOLD_START'; tStart: number }
-  | { type: 'HOLD_END'; tEnd: number }
+  /** caller completed one cell-hold; t is the HOST-time the cell finished inking */
+  | { type: 'CELL_FILL'; t: number }
   | { type: 'BELL'; bellTime: number }
   | { type: 'NEW_SHEET'; sheet: Sheet }
   | { type: 'RESET' };
-
-/** Active fill time accumulated for the round, given an evaluation timestamp. */
-export function activeFillMs(state: GameState, atTime: number): number {
-  const open = state.holdStart !== null ? Math.max(0, atTime - state.holdStart) : 0;
-  return state.heldMs + open;
-}
