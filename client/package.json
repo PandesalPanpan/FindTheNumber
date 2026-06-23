@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "og": "node scripts/make-og.mjs"
   },
   "dependencies": {
     "@ftn/shared": "*",

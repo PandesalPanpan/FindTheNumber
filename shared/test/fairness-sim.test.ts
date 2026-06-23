@@ -36,10 +36,15 @@ function estimateOffset(trueOffset: number, lat: LatFn, rounds = 12): number {
 }
 
 /**
- * Play one round through the real engine. The call→bell interval always spans
- * the two clocks: the caller's hold timestamp is native on its own clock and
- * the searcher's bell timestamp is converted to host time with `estOffset`.
- * Returns the boxes the caller was awarded.
+ * Play one round through the real engine. The caller fills cells one per
+ * `rate` on its own clock; the searcher rings the bell after `heldMs`. The
+ * call→bell interval always spans the two clocks: the caller's per-cell
+ * timestamps are native on its own clock and the searcher's bell is converted
+ * to host time with `estOffset` (or vice-versa). Returns the boxes banked.
+ *
+ * Boxes = cells whose completion lands at/before the bell, host-time. The
+ * host's budget cap accepts each of those (it only ever rejects cells faster
+ * than the elapsed budget), so the award still depends only on a duration.
  */
 function roundBoxes(opts: {
   firstCaller: Role;
@@ -57,25 +62,31 @@ function roundBoxes(opts: {
     config,
   });
   const value = sheet.numbers[0].value;
-  const T0 = 1_000_000; // an arbitrary host-frame instant for the hold start
+  const T0 = 1_000_000; // an arbitrary host-frame instant for the call
 
+  // timestamps are real (integer-ms) wall-clock readings, rounded like Date.now
+  let callTime: number;
+  let bellTime: number;
   if (opts.firstCaller === 'host') {
     // host caller (native clock); guest searcher converts its bell to host time
-    s = applyEvent(s, { type: 'CALL', number: value, callTime: T0 });
-    s = applyEvent(s, { type: 'HOLD_START', tStart: T0 });
+    callTime = T0;
     const guestReadingAtBell = T0 + opts.heldMs + opts.trueOffset;
-    const bellTime = toHostTime(guestReadingAtBell, opts.estOffset);
-    s = applyEvent(s, { type: 'BELL', bellTime });
-    return s.filled.host;
+    bellTime = Math.round(toHostTime(guestReadingAtBell, opts.estOffset));
   } else {
-    // guest caller converts its hold start; host searcher rings natively
-    const tStart = toHostTime(T0 + opts.trueOffset, opts.estOffset);
-    s = applyEvent(s, { type: 'CALL', number: value, callTime: tStart });
-    s = applyEvent(s, { type: 'HOLD_START', tStart });
-    const bellTime = T0 + opts.heldMs;
-    s = applyEvent(s, { type: 'BELL', bellTime });
-    return s.filled.guest;
+    // guest caller converts its per-cell timestamps; host searcher rings natively
+    callTime = Math.round(toHostTime(T0 + opts.trueOffset, opts.estOffset));
+    bellTime = T0 + opts.heldMs;
   }
+
+  s = applyEvent(s, { type: 'CALL', number: value, callTime });
+  // the caller completes cell i at callTime + i*rate (host time); only cells
+  // finishing at/before the bell count for the round
+  const cells = Math.max(0, Math.floor((bellTime - callTime) / opts.rate));
+  for (let i = 1; i <= cells; i++) {
+    s = applyEvent(s, { type: 'CELL_FILL', t: callTime + i * opts.rate });
+  }
+  s = applyEvent(s, { type: 'BELL', bellTime });
+  return s.filled[opts.firstCaller];
 }
 
 describe('clock-sync fairness under network conditions', () => {

@@ -12,7 +12,7 @@ export function GameBoard({ g }: { g: GameView }) {
 
   let banner: string;
   if (g.isCaller && g.activeNumber === null) banner = 'YOUR TURN — tap a number to call it';
-  else if (g.isCaller && g.activeNumber !== null) banner = '✍️ HOLD your grid to scribble Xs!';
+  else if (g.isCaller && g.activeNumber !== null) banner = '✍️ HOLD each box to scribble an X!';
   else if (g.isSearcher && g.activeNumber === null) banner = 'Opponent is choosing a number…';
   else if (g.bellArmed) banner = 'GOT IT — SLAP THE BELL!';
   else banner = 'FIND it on your sheet…';
@@ -54,14 +54,35 @@ export function GameBoard({ g }: { g: GameView }) {
         <Grid
           size={size}
           filled={g.myDisplayFill}
-          fillExact={g.myFillExact}
           label="You"
           mine
-          holdable={g.isCaller && g.activeNumber !== null}
-          onHoldStart={g.holdStart}
-          onHoldEnd={g.holdEnd}
+          cells={g.myCells}
+          holdingCell={g.holdingCell}
+          holdFraction={g.holdFraction}
+          canFill={g.canFill}
+          onCellDown={g.cellDown}
+          onCellUp={g.cellUp}
         />
-        <Grid size={size} filled={g.oppDisplayFill} label="Opponent" mine={false} />
+        <OppProgress filled={g.oppDisplayFill} total={size * size} />
+      </div>
+    </div>
+  );
+}
+
+/** The opponent's grid is non-interactive, so on every screen it collapses to a
+ *  compact progress bar — freeing the full width for the player's own grid. */
+function OppProgress({ filled, total }: { filled: number; total: number }) {
+  const pct = total > 0 ? Math.min(100, (filled / total) * 100) : 0;
+  return (
+    <div className="opp-progress" data-testid="opp-progress">
+      <div className="opp-progress-head">
+        <span>Opponent</span>
+        <span className="opp-count">
+          {filled}<span className="opp-count-total">/{total}</span>
+        </span>
+      </div>
+      <div className="opp-bar" role="progressbar" aria-valuenow={filled} aria-valuemin={0} aria-valuemax={total}>
+        <div className="opp-bar-fill" style={{ width: `${pct}%` }} />
       </div>
     </div>
   );

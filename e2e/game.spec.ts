@@ -82,8 +82,27 @@ async function gridCount(page: Page) {
   return Number(txt.split('/')[0]);
 }
 
-/** Play one round; returns false if the match ended during it. */
-async function playRound(caller: Page, searcher: Page, holdMs: number) {
+/**
+ * Press-and-hold `n` individual empty boxes, one at a time, banking one X each.
+ * Each hold exceeds the fill rate (max 150ms in these tests) so every cell
+ * completes. Stops early if the grid fills and the match ends mid-fill.
+ */
+async function fillBoxes(page: Page, n: number) {
+  for (let k = 0; k < n; k++) {
+    if (await page.getByTestId('end-screen').isVisible().catch(() => false)) return;
+    const empty = page.locator('.grid-wrap.mine .box:not(.x)').first();
+    const box = await empty.boundingBox();
+    if (!box) return;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(300); // > fill rate -> the cell inks in and commits
+    await page.mouse.up();
+    await page.waitForTimeout(40); // let the optimistic commit settle
+  }
+}
+
+/** Play one round, filling `boxes` cells; returns false if the match ended. */
+async function playRound(caller: Page, searcher: Page, boxes: number) {
   const num = await caller
     .locator('.sheet-num:not([disabled])')
     .first()
@@ -93,41 +112,20 @@ async function playRound(caller: Page, searcher: Page, holdMs: number) {
   await caller.locator(`[data-testid=num-${num}]`).click();
   await expect(searcher.getByTestId('find-target')).toContainText(num!);
 
-  if (holdMs > 0) {
-    // wait until the caller's own UI has entered the hold phase (state may lag
+  if (boxes > 0) {
+    // wait until the caller's own UI has entered the fill phase (state may lag
     // a round-trip behind under latency) before pressing
     await expect(caller.getByTestId('banner')).toContainText('HOLD', { timeout: 8000 });
-    // caller presses and holds their grid
-    const grid = caller.getByTestId('my-grid');
-    await grid.scrollIntoViewIfNeeded();
-    const box = (await grid.boundingBox())!;
-    await caller.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await caller.mouse.down();
-    await caller.waitForTimeout(holdMs);
+    await fillBoxes(caller, boxes);
 
-    // did the caller hit the cap mid-hold (instant win)?
-    if (await caller.getByTestId('end-screen').isVisible().catch(() => false)) {
-      await caller.mouse.up();
-      return false;
-    }
+    // did the caller fill the grid mid-search (instant win)?
+    if (await caller.getByTestId('end-screen').isVisible().catch(() => false)) return false;
   }
 
   // searcher finds the number and slaps the bell (force: the armed bell pulses)
   await searcher.locator(`[data-testid=num-${num}]`).click();
   await searcher.getByTestId('bell').click({ force: true });
-  if (holdMs > 0) await caller.mouse.up();
   return true;
-}
-
-/** Hold the caller's grid continuously (no bell) until the page reports it. */
-async function holdGrid(page: Page, ms: number) {
-  const grid = page.getByTestId('my-grid');
-  await grid.scrollIntoViewIfNeeded();
-  const box = (await grid.boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.waitForTimeout(ms);
-  await page.mouse.up();
 }
 
 async function circledCount(page: Page) {
@@ -147,7 +145,7 @@ async function playToWin(host: Page, guest: Page) {
   while (guard++ < 40) {
     if (await ended(host, guest)) break;
     const r = await rolesNow(host, guest);
-    const cont = await playRound(r.caller, r.searcher, 600);
+    const cont = await playRound(r.caller, r.searcher, 4);
     if (!cont) break;
   }
   await expect(host.getByTestId('end-screen')).toBeVisible();
@@ -159,10 +157,10 @@ test('relay: full two-player match — calling, finding, filling, alternation, w
 }) => {
   const { host, guest } = await createMatch(browser);
 
-  // round 1: caller earns boxes proportional to hold time
+  // round 1: caller earns one box per cell they hold-fill
   const { caller, searcher } = await rolesNow(host, guest);
   const before = await gridCount(caller);
-  await playRound(caller, searcher, 700); // 700ms / 150ms ≈ 4 boxes
+  await playRound(caller, searcher, 4); // four cell-holds -> ~4 boxes
   await expect
     .poll(async () => gridCount(caller))
     .toBeGreaterThan(before);
@@ -255,7 +253,7 @@ test('p2p: full match plays over a real WebRTC data channel', async ({ browser }
   // a normal round produces boxes (exercises clock sync over the data channel)
   const { caller, searcher } = await rolesNow(host, guest);
   const before = await gridCount(caller);
-  await playRound(caller, searcher, 700);
+  await playRound(caller, searcher, 4);
   await expect.poll(async () => gridCount(caller)).toBeGreaterThan(before);
 
   await playToWin(host, guest);
@@ -277,15 +275,15 @@ for (const first of ['host', 'guest'] as const) {
 
     // play the round through that caller and confirm boxes are awarded
     const before = await gridCount(expected);
-    await playRound(expected, other, 700);
+    await playRound(expected, other, 4);
     await expect.poll(async () => gridCount(expected)).toBeGreaterThan(before);
     // and roles alternate afterwards
     await expect(other.getByTestId('banner')).toContainText('YOUR TURN');
   });
 }
 
-test('relay: holding to the cap wins instantly without a bell', async ({ browser }) => {
-  // grid 2x2 = 4 boxes at 120ms/box -> ~480ms of holding wins
+test('relay: filling the last box mid-search wins instantly without a bell', async ({ browser }) => {
+  // grid 2x2 = 4 boxes at 120ms/box -> filling all four cells wins outright
   const { host, guest } = await createMatch(browser, { first: 'host', grid: 2, rate: 120 });
   await expect(host.getByTestId('banner')).toContainText('YOUR TURN');
 
@@ -295,8 +293,8 @@ test('relay: holding to the cap wins instantly without a bell', async ({ browser
     .getAttribute('data-value'))!;
   await host.locator(`[data-testid=num-${num}]`).click();
 
-  // host just keeps holding — the win fires via the host timer, no bell slap
-  await holdGrid(host, 1000);
+  // host fills all four boxes one-by-one — the 4th caps the grid and wins, no bell
+  await fillBoxes(host, 4);
 
   await expect(host.getByTestId('end-screen')).toBeVisible();
   await expect(guest.getByTestId('end-screen')).toBeVisible();
@@ -318,7 +316,7 @@ test('latency: relay match stays fair under ~200ms per-message delay', async ({ 
 
   const { caller, searcher } = await rolesNow(host, guest);
   const before = await gridCount(caller);
-  await playRound(caller, searcher, 900); // 900ms / 150ms = 6 boxes (fair)
+  await playRound(caller, searcher, 6); // six cell-holds -> 6 boxes (fair)
 
   // authoritative count settles after the lagged round-trip; poll for it
   await expect.poll(async () => gridCount(caller), { timeout: 8000 }).toBeGreaterThan(before);
@@ -350,7 +348,7 @@ test('latency: P2P connects and plays under emulated network conditions', async 
   // and a round plays through to award boxes
   const { caller, searcher } = await rolesNow(host, guest);
   const before = await gridCount(caller);
-  await playRound(caller, searcher, 700);
+  await playRound(caller, searcher, 4);
   await expect.poll(async () => gridCount(caller), { timeout: 8000 }).toBeGreaterThan(before);
 });
 

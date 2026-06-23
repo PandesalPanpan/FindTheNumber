@@ -1,5 +1,4 @@
 import {
-  activeFillMs,
   GameEvent,
   GameState,
   Role,
@@ -31,8 +30,7 @@ export function applyEvent(state: GameState, event: GameEvent): GameState {
         caller: event.firstCaller,
         activeNumber: null,
         callTime: null,
-        heldMs: 0,
-        holdStart: null,
+        roundFilled: 0,
         winner: null,
       };
     }
@@ -48,32 +46,49 @@ export function applyEvent(state: GameState, event: GameEvent): GameState {
         ...state,
         activeNumber: event.number,
         callTime: event.callTime,
-        heldMs: 0,
-        holdStart: null,
+        roundFilled: 0,
       };
     }
 
-    case 'HOLD_START': {
-      if (state.activeNumber === null || state.holdStart !== null) return state;
-      return { ...state, holdStart: event.tStart };
-    }
+    case 'CELL_FILL': {
+      if (state.phase !== 'playing') return state;
+      if (state.activeNumber === null || state.callTime === null) return state;
 
-    case 'HOLD_END': {
-      if (state.holdStart === null) return state;
-      const add = Math.max(0, event.tEnd - state.holdStart);
-      return { ...state, heldMs: state.heldMs + add, holdStart: null };
+      const cap = totalBoxes(state.config);
+      const caller = state.caller;
+      if (state.filled[caller] >= cap) return state;
+
+      // trust-but-cap: the caller can never bank more boxes this round than the
+      // elapsed time budget allows. Latency only delays event.t, never inflates
+      // the budget, so a slow/clumsy caller falls short but no one can cheat.
+      const budget = boxesForDuration(event.t - state.callTime, state.config.fillRateMs);
+      if (state.roundFilled + 1 > budget) return state; // too fast — reject
+
+      const filled = { ...state.filled };
+      filled[caller] = Math.min(cap, filled[caller] + 1);
+
+      // instant win the moment the grid is full, mid-search
+      if (filled[caller] >= cap) {
+        return {
+          ...state,
+          filled,
+          roundFilled: state.roundFilled + 1,
+          phase: 'over',
+          winner: caller,
+          activeNumber: null,
+          callTime: null,
+        };
+      }
+
+      return { ...state, filled, roundFilled: state.roundFilled + 1 };
     }
 
     case 'BELL': {
       if (state.phase !== 'playing') return state;
       if (state.activeNumber === null || state.callTime === null) return state;
 
-      const activeMs = activeFillMs(state, event.bellTime);
-      const earned = boxesForDuration(activeMs, state.config.fillRateMs);
-      const cap = totalBoxes(state.config);
+      // boxes were already banked live per-cell; the bell just ends the round.
       const caller = state.caller;
-      const filled = { ...state.filled };
-      filled[caller] = Math.min(cap, filled[caller] + earned);
 
       // circle the found number
       const numbers = state.sheet.numbers.map((n) =>
@@ -81,30 +96,13 @@ export function applyEvent(state: GameState, event: GameEvent): GameState {
       );
       const sheet: Sheet = { ...state.sheet, numbers };
 
-      // win check (instant win possible: filled hit cap)
-      if (filled[caller] >= cap) {
-        return {
-          ...state,
-          sheet,
-          filled,
-          phase: 'over',
-          winner: caller,
-          activeNumber: null,
-          callTime: null,
-          heldMs: 0,
-          holdStart: null,
-        };
-      }
-
       return {
         ...state,
         sheet,
-        filled,
         caller: other(caller),
         activeNumber: null,
         callTime: null,
-        heldMs: 0,
-        holdStart: null,
+        roundFilled: 0,
       };
     }
 

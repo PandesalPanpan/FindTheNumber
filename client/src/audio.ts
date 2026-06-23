@@ -76,6 +76,24 @@ export function playScribble() {
   src.stop(t + dur);
 }
 
+/** "You're up to call" — a bright two-note rising prompt for the new caller. */
+export function playYourTurn() {
+  const c = audio();
+  if (!c) return;
+  const t = c.currentTime;
+  ding(c, 587.33, t, 0.18, 0.3); // D5
+  ding(c, 880.0, t + 0.1, 0.22, 0.3); // A5
+}
+
+/** "Find it!" — a quick urgent double-blip for the searcher when a number lands. */
+export function playFind() {
+  const c = audio();
+  if (!c) return;
+  const t = c.currentTime;
+  ding(c, 740.0, t, 0.1, 0.28); // F#5
+  ding(c, 740.0, t + 0.13, 0.12, 0.28);
+}
+
 /** Win = rising arpeggio, loss = falling. */
 export function playEnd(win: boolean) {
   const c = audio();
