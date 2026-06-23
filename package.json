@@ -1,7 +1,7 @@
 {
   "name": "find-the-number",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "workspaces": [
     "shared",
     "server",
@@ -14,7 +14,8 @@
     "build": "npm -w shared run build && npm -w client run build",
     "test": "npm -w shared run test && npm -w server run test",
     "e2e": "playwright test",
-    "e2e:install": "playwright install chromium"
+    "e2e:install": "playwright install chromium",
+    "trailer": "node tools/record-trailer.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.1",

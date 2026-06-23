@@ -84,6 +84,42 @@ html, body, #root {
 .room-code:active { transform: translateY(1px); }
 .link-copy { cursor: pointer; text-decoration: underline dotted; }
 
+/* ---------- landing trailer ---------- */
+.trailer {
+  position: relative;
+  width: 100%;
+  max-width: 340px;
+  margin: 4px auto 8px;
+  border: 3px solid var(--ink);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 3px 3px 0 var(--ink);
+  background: #e9e2cc;
+  line-height: 0;
+}
+.trailer-video {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.trailer-mute {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  font-family: inherit;
+  font-size: 1.05rem;
+  line-height: 1;
+  padding: 6px 12px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: rgba(247, 241, 223, 0.92);
+  color: var(--ink);
+  cursor: pointer;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.trailer-mute:active { transform: translate(1px, 1px); box-shadow: 1px 1px 0 var(--ink); }
+.trailer-mute[aria-pressed='true'] { background: #c8f7c5; }
+
 /* ---------- board ---------- */
 .board {
   max-width: 560px;

@@ -16,6 +16,10 @@ playwright/.cache/
 # screenshots (regenerate via e2e/shots.spec.ts)
 screenshots/
 
+# trailer generator intermediates (raw captures, chiptune, combined);
+# the final mp4/webm/poster are committed under client/public/
+tools/.trailer-build/
+
 # env & local config
 .env
 .env.*
