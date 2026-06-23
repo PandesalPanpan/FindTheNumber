@@ -13,31 +13,58 @@ function start(config = DEFAULT_CONFIG): GameState {
   });
 }
 
+/** Bank `n` cells honestly: each completes exactly one fillRate after the last. */
+function fillCells(s: GameState, n: number): GameState {
+  const rate = s.config.fillRateMs;
+  const callTime = s.callTime ?? 0;
+  for (let k = 1; k <= n; k++) {
+    s = applyEvent(s, { type: 'CELL_FILL', t: callTime + k * rate });
+  }
+  return s;
+}
+
 describe('engine', () => {
-  it('awards floor(heldTime/rate) boxes to the caller on BELL', () => {
+  it('banks one box per fully-held cell and circles the number on BELL', () => {
     let s = start();
     const num = s.sheet.numbers[0].value;
     s = applyEvent(s, { type: 'CALL', number: num, callTime: 1000 });
     expect(s.activeNumber).toBe(num);
-    s = applyEvent(s, { type: 'HOLD_START', tStart: 1000 });
-    s = applyEvent(s, { type: 'BELL', bellTime: 1000 + 2000 }); // 2000ms / 400 = 5
+    s = fillCells(s, 5); // five completed cell-holds
     expect(s.filled.host).toBe(5);
     expect(s.filled.guest).toBe(0);
+    s = applyEvent(s, { type: 'BELL', bellTime: 1000 + 2000 });
     expect(s.caller).toBe('guest'); // alternation
-    // number is circled
     expect(s.sheet.numbers.find((n) => n.value === num)!.circled).toBe(true);
   });
 
-  it('only counts time while holding (pausing on release)', () => {
-    let s = start();
+  it('rejects banking a box faster than the elapsed time budget allows', () => {
+    let s = start({ ...DEFAULT_CONFIG, fillRateMs: 400 });
     const num = s.sheet.numbers[0].value;
     s = applyEvent(s, { type: 'CALL', number: num, callTime: 0 });
-    s = applyEvent(s, { type: 'HOLD_START', tStart: 0 });
-    s = applyEvent(s, { type: 'HOLD_END', tEnd: 800 }); // 2 boxes held
-    // idle 5s (no hold) -> no boxes accrue
-    s = applyEvent(s, { type: 'HOLD_START', tStart: 5800 });
-    s = applyEvent(s, { type: 'BELL', bellTime: 6200 }); // +400ms = +1 box
-    expect(s.filled.host).toBe(3);
+    // 200ms in, budget = floor(200/400) = 0 -> reject
+    s = applyEvent(s, { type: 'CELL_FILL', t: 200 });
+    expect(s.filled.host).toBe(0);
+    expect(s.roundFilled).toBe(0);
+    // 400ms in, budget = 1 -> accept
+    s = applyEvent(s, { type: 'CELL_FILL', t: 400 });
+    expect(s.filled.host).toBe(1);
+    expect(s.roundFilled).toBe(1);
+  });
+
+  it('resets the round budget on each new CALL', () => {
+    let s = start({ ...DEFAULT_CONFIG, fillRateMs: 400 });
+    const v0 = s.sheet.numbers[0].value;
+    s = applyEvent(s, { type: 'CALL', number: v0, callTime: 0 });
+    s = fillCells(s, 3);
+    s = applyEvent(s, { type: 'BELL', bellTime: 5000 });
+    expect(s.roundFilled).toBe(0); // reset after the round ends
+    // guest is now caller; their round starts fresh
+    const v1 = s.sheet.numbers.find((n) => !n.circled)!.value;
+    s = applyEvent(s, { type: 'CALL', number: v1, callTime: 10000 });
+    s = applyEvent(s, { type: 'CELL_FILL', t: 10200 }); // 200ms -> budget 0, reject
+    expect(s.filled.guest).toBe(0);
+    s = applyEvent(s, { type: 'CELL_FILL', t: 10400 }); // budget 1, accept
+    expect(s.filled.guest).toBe(1);
   });
 
   it('rejects calling a circled or absent number', () => {
@@ -58,30 +85,31 @@ describe('engine', () => {
   it('accumulates across rounds and triggers instant win at cap', () => {
     const config = { ...DEFAULT_CONFIG, fillRateMs: 100 };
     let s = start(config);
-    // host earns 100 in one giant round -> instant win
     const num = s.sheet.numbers[0].value;
     s = applyEvent(s, { type: 'CALL', number: num, callTime: 0 });
-    s = applyEvent(s, { type: 'HOLD_START', tStart: 0 });
-    s = applyEvent(s, { type: 'BELL', bellTime: 100 * 100 }); // 100 boxes
+    s = fillCells(s, 100); // fills the whole grid mid-search
     expect(s.filled.host).toBe(100);
     expect(s.phase).toBe('over');
     expect(s.winner).toBe('host');
   });
 
-  it('caps boxes at the grid total', () => {
+  it('caps boxes at the grid total (never overfills)', () => {
     const config = { ...DEFAULT_CONFIG, fillRateMs: 1 };
     let s = start(config);
     const num = s.sheet.numbers[0].value;
     s = applyEvent(s, { type: 'CALL', number: num, callTime: 0 });
-    s = applyEvent(s, { type: 'HOLD_START', tStart: 0 });
-    s = applyEvent(s, { type: 'BELL', bellTime: 999999 });
+    // try to bank way more than the grid holds; budget is generous (rate=1)
+    for (let k = 1; k <= 150; k++) {
+      s = applyEvent(s, { type: 'CELL_FILL', t: k });
+    }
     expect(s.filled.host).toBe(100);
+    expect(s.phase).toBe('over');
   });
 
   it('flags needsNewSheet only when all circled', () => {
     let s = start({ ...DEFAULT_CONFIG, sheetCount: 2, numberMin: 1, numberMax: 9 });
     expect(needsNewSheet(s)).toBe(false);
-    // circle both numbers via two rounds (small durations so no win)
+    // circle both numbers via two rounds (no fills so no win)
     const v0 = s.sheet.numbers[0].value;
     s = applyEvent(s, { type: 'CALL', number: v0, callTime: 0 });
     s = applyEvent(s, { type: 'BELL', bellTime: 10 });

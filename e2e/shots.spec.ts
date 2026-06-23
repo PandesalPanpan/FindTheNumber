@@ -54,13 +54,13 @@ test('capture UI states', async ({ browser }) => {
   await expect(guest.getByTestId('find-target')).toContainText(num);
   await guest.screenshot({ path: `${DIR}/12-searcher-hunt.png` });
 
-  // caller presses & holds -> capture mid-scribble
+  // caller presses & holds a single box -> capture it mid-ink (rate=350ms)
   await expect(host.getByTestId('banner')).toContainText('HOLD');
-  const grid = host.getByTestId('my-grid');
-  const box = (await grid.boundingBox())!;
+  const cell = host.locator('.grid-wrap.mine .box:not(.x)').first();
+  const box = (await cell.boundingBox())!;
   await host.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await host.mouse.down();
-  await host.waitForTimeout(900); // ~2.5 boxes in -> partial fill visible
+  await host.waitForTimeout(180); // ~half a cell inked -> partial X visible
   await host.screenshot({ path: `${DIR}/13-caller-holding.png` });
   await host.mouse.up();
 
