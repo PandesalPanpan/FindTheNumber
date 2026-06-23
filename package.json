@@ -1,7 +1,7 @@
 {
   "name": "find-the-number",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "workspaces": [
     "shared",
     "server",
