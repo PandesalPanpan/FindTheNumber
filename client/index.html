@@ -6,10 +6,76 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
+
+    <!-- Primary SEO -->
+    <title>Find the Number — Free 2-Player Online Game</title>
+    <meta
+      name="description"
+      content="Play Find the Number, a fast free 2-player online game. Call a number, find it on the flipped paper sheet, slap the bell, and race to fill your grid first. No download, no signup — just share a room code with a friend."
+    />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="__PUBLIC_URL__/" />
+    <meta name="theme-color" content="#f7f1df" />
+
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/favicon.svg" />
-    <meta name="theme-color" content="#f7f1df" />
-    <title>Find the Number</title>
+
+    <!-- Open Graph / social share -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Find the Number" />
+    <meta property="og:title" content="Find the Number — Free 2-Player Online Game" />
+    <meta
+      property="og:description"
+      content="A fast, free 2-player browser game. Call a number, find it on the flipped sheet, slap the bell, and race to fill your grid. No download — play with a friend in seconds."
+    />
+    <meta property="og:url" content="__PUBLIC_URL__/" />
+    <meta property="og:image" content="__PUBLIC_URL__/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Find the Number — free 2-player online game" />
+
+    <!-- Twitter / X card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Find the Number — Free 2-Player Online Game" />
+    <meta
+      name="twitter:description"
+      content="A fast, free 2-player browser game. Call a number, find it, slap the bell, race to fill your grid. No download."
+    />
+    <meta name="twitter:image" content="__PUBLIC_URL__/og.png" />
+
+    <!-- Structured data: free browser game -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "VideoGame",
+        "name": "Find the Number",
+        "url": "__PUBLIC_URL__/",
+        "image": "__PUBLIC_URL__/og.png",
+        "description": "A fast, free 2-player online game. Call a number, find it on the flipped paper sheet, slap the bell, and race to fill your grid first. No download or signup required.",
+        "applicationCategory": "GameApplication",
+        "operatingSystem": "Web browser",
+        "genre": ["Casual", "Multiplayer", "Puzzle"],
+        "playMode": "MultiPlayer",
+        "numberOfPlayers": { "@type": "QuantitativeValue", "minValue": 2, "maxValue": 2 },
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+      }
+    </script>
+
+    <!-- Google Analytics 4 (id baked at build time; override/disable via VITE_GA_ID) -->
+    <script>
+      var GA_ID = '__GA_ID__';
+      if (GA_ID && GA_ID.indexOf('G-') === 0) {
+        var s = document.createElement('script');
+        s.async = true;
+        s.src = 'https://www.googletagmanager.com/gtag/js?id=' + GA_ID;
+        document.head.appendChild(s);
+        window.dataLayer = window.dataLayer || [];
+        function gtag() { dataLayer.push(arguments); }
+        gtag('js', new Date());
+        gtag('config', GA_ID);
+      }
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
