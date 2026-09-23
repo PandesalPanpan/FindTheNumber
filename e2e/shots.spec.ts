@@ -11,7 +11,8 @@ mkdirSync(DIR, { recursive: true });
 
 function hostUrl() {
   // host always calls first; slow-ish fill so the hold state is screenshottable
-  return '/?transport=relay&first=host&grid=4&rate=350&count=16';
+  // Match the approved gameplay frame and the lobby's default Normal preset.
+  return '/?transport=relay&first=host&grid=10&rate=350&count=30';
 }
 
 async function createMatch(browser: BrowserContext['browser']) {
@@ -39,12 +40,26 @@ async function createMatch(browser: BrowserContext['browser']) {
   return { hostCtx, guestCtx, host, guest };
 }
 
+async function tapNumber(page: Page, value: string) {
+  const button = page.getByTestId(`num-${value}`);
+  await expect(button).toBeVisible();
+  await expect(button).toBeEnabled();
+  const bounds = await button.boundingBox();
+  if (!bounds) throw new Error(`number ${value} has no visible hit area`);
+  await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+}
+
 test('capture UI states', async ({ browser }) => {
   test.setTimeout(60000);
   const { host, guest } = await createMatch(browser);
 
   // host is the caller (first=host). guest is the searcher.
   await expect(host.getByTestId('banner')).toContainText('YOUR TURN');
+  await expect(host.getByTestId('my-grid').locator('.box')).toHaveCount(100);
+  await expect(host.getByTestId('sheet').locator('.sheet-num')).toHaveCount(30);
+  const playerGridBounds = await host.getByTestId('my-grid').boundingBox();
+  expect(playerGridBounds).toBeTruthy();
+  expect(playerGridBounds!.y + playerGridBounds!.height).toBeLessThanOrEqual(844);
   await host.screenshot({ path: `${DIR}/10-caller-pick.png` });
   await guest.screenshot({ path: `${DIR}/11-searcher-wait.png` });
 
@@ -53,10 +68,11 @@ test('capture UI states', async ({ browser }) => {
     .locator('.sheet-num:not([disabled])')
     .first()
     .getAttribute('data-value'))!;
-  await host.locator(`[data-testid=num-${num}]`).click();
+  await tapNumber(host, num);
 
   // searcher now hunting (number shown, bell not yet armed)
   await expect(guest.getByTestId('find-target')).toContainText(num);
+  await expect(guest.locator('.sheet-num.circled')).toHaveCount(0);
   await guest.screenshot({ path: `${DIR}/12-searcher-hunt.png` });
 
   // caller presses & holds a single box -> capture it mid-ink (rate=350ms)
@@ -70,8 +86,9 @@ test('capture UI states', async ({ browser }) => {
   await host.mouse.up();
 
   // searcher finds the number -> bell armed
-  await guest.locator(`[data-testid=num-${num}]`).click();
+  await tapNumber(guest, num);
   await expect(guest.getByTestId('bell')).toBeEnabled();
+  await expect(guest.locator(`.sheet-num.circled[data-value="${num}"]`)).toBeVisible();
   await guest.screenshot({ path: `${DIR}/14-searcher-armed.png` });
 
   await host.screenshot({ path: `${DIR}/15-caller-after.png` });

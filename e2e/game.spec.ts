@@ -81,6 +81,17 @@ async function gridCount(page: Page) {
   return Number(txt.split('/')[0]);
 }
 
+/** Send a physical tap at the printed glyph center; overlapping invisible
+ * button areas are resolved to the nearest number by the Sheet component. */
+async function tapNumber(page: Page, value: string) {
+  const button = page.getByTestId(`num-${value}`);
+  await expect(button).toBeVisible();
+  await expect(button).toBeEnabled();
+  const bounds = await button.boundingBox();
+  if (!bounds) throw new Error(`number ${value} has no visible hit area`);
+  await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+}
+
 /**
  * Press-and-hold `n` individual empty boxes, one at a time, banking one X each.
  * Each hold exceeds the fill rate (max 150ms in these tests) so every cell
@@ -109,7 +120,7 @@ async function playRound(caller: Page, searcher: Page, boxes: number) {
     .getAttribute('data-value');
   expect(num).toBeTruthy();
 
-  await caller.locator(`[data-testid=num-${num}]`).click();
+  await tapNumber(caller, num!);
   await expect(searcher.getByTestId('find-target')).toContainText(num!);
 
   if (boxes > 0) {
@@ -124,7 +135,7 @@ async function playRound(caller: Page, searcher: Page, boxes: number) {
   if (await ended(caller, searcher)) return false;
 
   // searcher finds the number and slaps the bell (force: the armed bell pulses)
-  await searcher.locator(`[data-testid=num-${num}]`).click();
+  await tapNumber(searcher, num!);
   await searcher.getByTestId('bell').click({ force: true });
   return true;
 }
@@ -210,7 +221,7 @@ test('opponent mini-grid shows the real row-major fill count for configured grid
   }
 
   const number = (await host.locator('.sheet-num:not([disabled])').first().getAttribute('data-value'))!;
-  await host.locator(`[data-testid=num-${number}]`).click();
+  await tapNumber(host, number);
   await expect(guest.getByTestId('find-target')).toHaveText(number);
   await fillBoxes(host, 2);
 
@@ -220,6 +231,38 @@ test('opponent mini-grid shows the real row-major fill count for configured grid
   await expect(guestOpponentGrid.locator('.opponent-mini-cell').nth(1)).toHaveAttribute('data-filled', 'true');
   await expect(guestOpponentGrid.locator('.opponent-mini-cell').nth(2)).toHaveAttribute('data-filled', 'false');
   await expect(host.getByTestId('player-count')).toHaveText('2/9');
+});
+
+test('keyboard users can call, hold a box, find the target, and ring the bell', async ({ browser }) => {
+  const { host, guest } = await createMatch(browser, {
+    first: 'host',
+    grid: 2,
+    rate: 120,
+    count: 3,
+  });
+
+  const number = (await host.locator('.sheet-num:not([disabled])').first().getAttribute('data-value'))!;
+  const callerNumber = host.locator(`[data-testid=num-${number}]`);
+  await callerNumber.focus();
+  await host.keyboard.press('Enter');
+  await expect(guest.getByTestId('find-target')).toHaveText(number);
+
+  const box = host.getByTestId('my-box-0');
+  await box.focus();
+  await host.keyboard.down('Space');
+  await host.waitForTimeout(180);
+  await host.keyboard.up('Space');
+  await expect.poll(() => gridCount(host)).toBe(1);
+
+  const searcherNumber = guest.locator(`[data-testid=num-${number}]`);
+  await searcherNumber.focus();
+  await guest.keyboard.press('Enter');
+  await expect(guest.getByTestId('bell')).toBeEnabled();
+  await expect(guest.locator(`.sheet-num.circled[data-value="${number}"]`)).toBeVisible();
+  await guest.getByTestId('bell').focus();
+  await guest.keyboard.press('Enter');
+  await expect(guest.getByTestId('banner')).toContainText('YOUR TURN');
+  await expect(host.getByTestId('banner')).toContainText('GET READY');
 });
 
 async function seriesSum(page: Page) {
@@ -254,7 +297,7 @@ test('relay: wrong number does not arm the bell', async ({ browser }) => {
     .locator('.sheet-num:not([disabled])')
     .first()
     .getAttribute('data-value'))!;
-  await caller.locator(`[data-testid=num-${num}]`).click();
+  await tapNumber(caller, num);
   await expect(searcher.getByTestId('find-target')).toContainText(num);
 
   // click a DIFFERENT number on the searcher's sheet
@@ -263,12 +306,12 @@ test('relay: wrong number does not arm the bell', async ({ browser }) => {
     .filter({ hasNotText: num })
     .first()
     .getAttribute('data-value');
-  if (wrong) await searcher.locator(`[data-testid=num-${wrong}]`).click();
+  if (wrong) await tapNumber(searcher, wrong);
 
   await expect(searcher.getByTestId('bell')).toBeDisabled();
 
   // clicking the correct one arms it
-  await searcher.locator(`[data-testid=num-${num}]`).click();
+  await tapNumber(searcher, num);
   await expect(searcher.getByTestId('bell')).toBeEnabled();
 });
 
@@ -332,7 +375,7 @@ test('relay: filling the last box mid-search wins instantly without a bell', asy
     .locator('.sheet-num:not([disabled])')
     .first()
     .getAttribute('data-value'))!;
-  await host.locator(`[data-testid=num-${num}]`).click();
+  await tapNumber(host, num);
 
   // host fills all four boxes one-by-one — the 4th caps the grid and wins, no bell
   await fillBoxes(host, 4);

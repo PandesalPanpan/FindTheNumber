@@ -559,7 +559,7 @@ button:focus-visible, input:focus-visible {
   touch-action: manipulation;
   -webkit-font-smoothing: antialiased;
 }
-.sheet-num:disabled { cursor: default; }
+.sheet-num:disabled { cursor: default; pointer-events: none; }
 .sheet-num.circled { z-index: 3; color: #4e2c27; }
 .sheet-num:not(:disabled):active { color: #b73228; }
 .sheet-num:focus-visible { outline: 2px solid #1676af; outline-offset: -2px; }
