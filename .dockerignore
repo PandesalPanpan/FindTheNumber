@@ -9,3 +9,6 @@ playwright-report
 .gitignore
 *.log
 .claude
+**/.env*
+**/*.local
+**/.npmrc

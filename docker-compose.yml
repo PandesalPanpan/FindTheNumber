@@ -1,9 +1,5 @@
-# Production stack for Dokploy (or any Docker host).
-#
-# Dokploy: create a "Docker Compose" application pointing at this file, then
-# attach your domain to the `web` service on container port 80. Dokploy's
-# Traefik handles TLS; the client talks to the signaling server over the same
-# origin at /ws, which nginx proxies to the `server` service internally.
+# Local production-like stack built from this checkout. For Dokploy deployment
+# from the published, versioned Docker Hub images, use docker-compose.prod.yml.
 services:
   server:
     build:

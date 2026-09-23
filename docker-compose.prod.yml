@@ -1,0 +1,24 @@
+services:
+  server:
+    image: pandesalpanpan/findthenumber-server:0.2.0
+    environment:
+      PORT: "8787"
+      RECONNECT_GRACE_MS: "15000"
+    expose:
+      - "8787"
+    restart: unless-stopped
+
+  web:
+    image: pandesalpanpan/findthenumber:0.3.2
+    depends_on:
+      - server
+    expose:
+      - "80"
+    restart: unless-stopped
+    networks:
+      - default
+      - dokploy-network
+
+networks:
+  dokploy-network:
+    external: true

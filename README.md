@@ -61,19 +61,29 @@ docker compose -f docker-compose.dev.yml up
 # client: http://localhost:5180   server: ws://localhost:8787
 ```
 
-## Production / Dokploy
+## Local Docker build (from source)
 
 ```bash
-docker compose build
-docker compose up -d         # web on http://localhost:8080
+docker compose up --build
+# web: http://localhost:8080
 ```
 
-The `web` (nginx) service serves the static client **and** proxies `/ws` to the
-`server` service on the internal network — everything on one origin.
+`docker-compose.yml` builds both services from the current checkout. The web
+container uses nginx for the static app and proxies `/ws` to `server:8787` on
+the Compose network.
 
-**Dokploy:** create a *Docker Compose* application from this repo and attach your
-domain to the **web** service (container port **80**). Dokploy's Traefik
-terminates TLS; the client connects same-origin at `/ws`, so no extra port,
-subdomain, or `VITE_SIGNAL_URL` is needed. (If you'd rather host the signaling
-server on a separate origin, set the `VITE_SIGNAL_URL` build arg on the `web`
-service, e.g. `wss://ws.example.com`.)
+## Production deployment (Dokploy)
+
+Production uses published, explicitly versioned Docker Hub images through
+[`docker-compose.prod.yml`](docker-compose.prod.yml):
+
+- Web: `pandesalpanpan/findthenumber:0.3.2`
+- Signaling server: `pandesalpanpan/findthenumber-server:0.2.0`
+
+In Dokploy, create a **Docker Compose** application using
+`docker-compose.prod.yml`. Ensure the external `dokploy-network` exists, then
+route the public domain to the `web` service on container port **80**. Do not
+route the domain to the server or publish port **8787**. nginx serves the web
+app and proxies same-origin `/ws` requests internally to `server:8787`; the
+server remains reachable only on the Compose default network. No `latest` tag
+is used for deployment.

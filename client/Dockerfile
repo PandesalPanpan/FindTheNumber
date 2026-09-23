@@ -6,7 +6,7 @@ COPY package.json package-lock.json ./
 COPY shared/package.json ./shared/
 COPY client/package.json ./client/
 COPY server/package.json ./server/
-RUN npm install
+RUN npm ci
 # bring in the sources actually needed to build the client
 COPY tsconfig.base.json ./
 COPY shared ./shared
