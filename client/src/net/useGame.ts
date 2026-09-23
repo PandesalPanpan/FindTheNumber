@@ -20,6 +20,7 @@ import {
   playBell,
   playEnd,
   playFind,
+  playFindSuccess,
   playScribble,
   playYourTurn,
 } from '../audio.js';
@@ -66,7 +67,7 @@ export interface GameView {
   createRoom: (config?: Partial<GameConfig>) => void;
   joinRoom: (code: string) => void;
   callNumber: (value: number) => void;
-  clickFind: (value: number) => void;
+  clickFind: (value: number) => 'wrong' | 'correct' | 'ignored';
   ringBell: () => void;
   cellDown: (index: number) => void;
   cellUp: () => void;
@@ -355,11 +356,16 @@ export function useGame(): GameView {
   const clickFind = useCallback(
     (value: number) => {
       const s = stateRef.current;
-      if (!s || s.activeNumber === null) return;
-      if (value === s.activeNumber) setBellArmed(true);
-      else forceTick((n) => n + 1); // wrong: shake handled by UI via this nudge
+      if (!s || s.phase !== 'playing' || s.activeNumber === null || !role || s.caller === role) {
+        return 'ignored';
+      }
+      if (value !== s.activeNumber) return 'wrong';
+      if (bellArmed) return 'ignored';
+      setBellArmed(true);
+      playFindSuccess();
+      return 'correct';
     },
-    [],
+    [role, bellArmed],
   );
 
   const ringBell = useCallback(() => {

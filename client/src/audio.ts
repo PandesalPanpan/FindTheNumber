@@ -94,6 +94,15 @@ export function playFind() {
   ding(c, 740.0, t + 0.13, 0.12, 0.28);
 }
 
+/** A small confirmation sparkle for finding the target; much softer than the bell slap. */
+export function playFindSuccess() {
+  const c = audio();
+  if (!c) return;
+  const t = c.currentTime;
+  ding(c, 1046.5, t, 0.075, 0.12); // C6
+  ding(c, 1318.5, t + 0.055, 0.09, 0.1); // E6
+}
+
 /** Win = rising arpeggio, loss = falling. */
 export function playEnd(win: boolean) {
   const c = audio();

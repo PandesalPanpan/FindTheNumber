@@ -7,22 +7,25 @@ interface Props {
   armed: boolean;
   /** true only for the searcher, where the bell is a real action button */
   interactive: boolean;
+  /** State-specific accessible name; includes the live target for searchers. */
+  ariaLabel: string;
   onRing: () => void;
 }
 
 /** The bell remains inert until the searcher has found the called number. */
-export function Bell({ text, number, armed, interactive, onRing }: Props) {
+export function Bell({ text, number, armed, interactive, ariaLabel, onRing }: Props) {
   const mode = armed ? 'armed' : interactive ? 'target' : 'inert';
-  const accessibleName = armed && number !== null
-    ? `Target ${number} found. Slap the bell now.`
-    : interactive
-      ? 'Bell locked until you find the target number'
-      : 'Bell is waiting for the number to be found';
 
   const inner = (
     <>
       <span className="bell-ico" aria-hidden="true">🔔</span>
-      <span className="bell-body">
+      <span className="bell-body" aria-live={interactive ? 'polite' : undefined} aria-atomic="true">
+        {interactive && number !== null && !armed && (
+          <>
+            <span className="bell-target-kicker">TARGET NUMBER</span>
+            <strong className="bell-target-number" data-testid="find-target">{number}</strong>
+          </>
+        )}
         {armed && number !== null && (
           <span className="bell-target" data-testid="bell-target">TARGET {number} FOUND</span>
         )}
@@ -39,8 +42,7 @@ export function Bell({ text, number, armed, interactive, onRing }: Props) {
         data-testid="bell"
         disabled={!armed}
         onClick={onRing}
-        aria-label={accessibleName}
-        aria-live="polite"
+        aria-label={ariaLabel}
       >
         {inner}
       </button>
@@ -48,7 +50,7 @@ export function Bell({ text, number, armed, interactive, onRing }: Props) {
   }
 
   return (
-    <div className={`bell ${mode}`} data-testid="bell" aria-live="polite">
+    <div className={`bell ${mode}`} data-testid="bell" role="status" aria-label={ariaLabel}>
       {inner}
     </div>
   );
