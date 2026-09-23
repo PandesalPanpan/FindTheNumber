@@ -82,7 +82,12 @@ export function GameBoard({ g }: { g: GameView }) {
           total={size * size}
         />
 
-        <Sheet sheet={s.sheet} onPick={onPick} interactive={sheetInteractive} />
+        <Sheet
+          sheet={s.sheet}
+          onPick={onPick}
+          interactive={sheetInteractive}
+          previewCircledValue={g.bellArmed ? g.activeNumber : null}
+        />
 
         <Bell
           text={bellText}
