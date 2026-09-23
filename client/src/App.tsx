@@ -37,8 +37,24 @@ function fallbackCopy(text: string): Promise<void> {
 
 export function App() {
   const g = useGame();
-  const [copied, setCopied] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState<'room' | 'invite' | 'failed' | null>(null);
   const roomParam = new URLSearchParams(location.search).get('room') ?? undefined;
+
+  const copyWithFeedback = (value: string, kind: 'room' | 'invite') => {
+    copyText(value)
+      .then(() => {
+        setCopyFeedback(kind);
+        window.setTimeout(() => setCopyFeedback(null), 1800);
+      })
+      .catch(() => setCopyFeedback('failed'));
+  };
+
+  const backToMenu = () => {
+    const url = new URL(location.href);
+    url.searchParams.delete('room');
+    history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    location.reload();
+  };
 
   // auto-join when arriving via a shared ?room= link
   useEffect(() => {
@@ -51,60 +67,90 @@ export function App() {
   }
 
   if (g.status === 'connecting') {
-    return <Centered>Connecting…</Centered>;
+    return <StatusScreen title="Connecting…" detail="Finding a connection to your table." busy />;
   }
 
   if (g.status === 'waiting') {
     const link = `${location.origin}${location.pathname}?room=${g.roomCode}`;
-    const doCopy = () => {
-      copyText(link)
-        .then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        })
-        .catch(() => {
-          /* leave the link visible for manual copy */
-        });
-    };
     return (
-      <div className="lobby" data-testid="waiting">
-        <h1 className="title">Waiting for a friend…</h1>
-        <p className="tagline">Share this with your opponent</p>
+      <main className="waiting-page page-shell" data-testid="waiting">
+        <span className="eyebrow status-chip success">ROOM CREATED</span>
+        <h1 className="waiting-title">Your table is ready.</h1>
+        <p className="waiting-intro">
+          Send the code to your friend. The match starts automatically when they join.
+        </p>
+
+        <section className="invite-card" aria-labelledby="room-code-label">
+          <span id="room-code-label" className="section-kicker">ROOM CODE</span>
+          <button
+            type="button"
+            className="room-code"
+            data-testid="room-code"
+            onClick={() => copyWithFeedback(g.roomCode ?? '', 'room')}
+            aria-label={`Copy room code ${g.roomCode}`}
+            title="Tap to copy the code"
+          >
+            {g.roomCode}
+          </button>
+          <span className="copy-hint">{copyFeedback === 'room' ? '✓ Code copied' : 'Tap the code to copy'}</span>
+        </section>
+
         <button
           type="button"
-          className="room-code"
-          data-testid="room-code"
-          onClick={() => copyText(g.roomCode ?? '')}
-          title="Tap to copy the code"
+          className="big-btn join invite-copy"
+          data-testid="copy-invite"
+          onClick={() => copyWithFeedback(link, 'invite')}
         >
-          {g.roomCode}
+          {copyFeedback === 'invite' ? '✓ Copied!' : '↗  Copy invite link'}
         </button>
-        <button className="big-btn join" onClick={doCopy}>
-          {copied ? '✓ Copied!' : 'Copy invite link'}
-        </button>
-        <p className="muted small link-copy" onClick={doCopy} title="Tap to copy">{link}</p>
-      </div>
+
+        <label className="manual-link-wrap">
+          <span className="visually-hidden">Invite link for manual copying</span>
+          <input
+            className="manual-link"
+            data-testid="invite-link"
+            readOnly
+            value={link}
+            onFocus={(event) => event.currentTarget.select()}
+            onClick={(event) => event.currentTarget.select()}
+            aria-describedby="copy-feedback"
+          />
+        </label>
+        <p id="copy-feedback" className="copy-feedback" data-testid="copy-feedback" role="status" aria-live="polite">
+          {copyFeedback === 'failed'
+            ? 'Copy failed. Select the invite link above to copy it.'
+            : copyFeedback === 'invite'
+              ? 'Invite link copied.'
+              : copyFeedback === 'room'
+                ? 'Room code copied.'
+                : ''}
+        </p>
+
+        <p className="waiting-indicator" aria-live="polite">
+          <span className="waiting-dots" aria-hidden="true"><i /><i /><i /></span>
+          Waiting for opponent…
+        </p>
+        <aside className="next-card">
+          <strong>What happens next?</strong>
+          <span>Both players see the same shuffled sheet. One calls a number; the other races to find it and slap the bell.</span>
+        </aside>
+      </main>
     );
   }
 
   if (g.status === 'syncing') {
-    return <Centered>Syncing clocks…</Centered>;
+    return <StatusScreen title="Syncing clocks…" detail="Making sure both players share fair timing." busy />;
   }
 
   if (g.status === 'reconnecting') {
-    return <Centered>Connection lost — reconnecting…</Centered>;
+    return <StatusScreen title="Reconnecting…" detail="Your game is trying to restore the connection." busy />;
   }
 
   if (g.status === 'ended') {
     return (
-      <Centered>
-        <div>
-          <p>{g.error ?? 'Game ended.'}</p>
-          <button className="big-btn create" onClick={() => location.reload()}>
-            Back to menu
-          </button>
-        </div>
-      </Centered>
+      <StatusScreen title="Game ended" detail={g.error ?? 'The match has ended.'}>
+        <button className="big-btn create" onClick={backToMenu}>Back to menu</button>
+      </StatusScreen>
     );
   }
 
@@ -119,16 +165,30 @@ export function App() {
           seriesMine={g.seriesMine}
           seriesOpp={g.seriesOpp}
           onPlayAgain={g.playAgain}
+          onBackToMenu={backToMenu}
         />
       )}
     </>
   );
 }
 
-function Centered({ children }: { children: React.ReactNode }) {
+function StatusScreen({
+  title,
+  detail,
+  busy = false,
+  children,
+}: {
+  title: string;
+  detail: string;
+  busy?: boolean;
+  children?: React.ReactNode;
+}) {
   return (
-    <div className="centered" data-testid="status">
+    <main className="status-page page-shell" data-testid="status" role="status" aria-live="polite">
+      {busy && <span className="status-spinner" aria-hidden="true" />}
+      <h1>{title}</h1>
+      <p>{detail}</p>
       {children}
-    </div>
+    </main>
   );
 }

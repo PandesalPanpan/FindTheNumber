@@ -3,8 +3,8 @@ import { mkdirSync } from 'node:fs';
 
 /**
  * Visual harness (not an assertion test): drives a real two-player match and
- * screenshots every meaningful UI state for both roles. Set SHOT_DIR to choose
- * the output folder, e.g. SHOT_DIR=screenshots/before npx playwright test shots.
+ * screenshots every meaningful UI state for both roles at the approved 390×844
+ * reference size. Set SHOT_DIR to choose the output folder.
  */
 const DIR = process.env.SHOT_DIR || 'screenshots/after';
 mkdirSync(DIR, { recursive: true });
@@ -21,6 +21,7 @@ async function createMatch(browser: BrowserContext['browser']) {
   const guest = await guestCtx.newPage();
 
   await host.goto(hostUrl());
+  await host.evaluate(() => document.fonts.ready);
   // capture the lobby + waiting (creation) screens before connecting
   await host.screenshot({ path: `${DIR}/00-lobby.png` });
   await host.getByTestId('create').click();
@@ -31,6 +32,10 @@ async function createMatch(browser: BrowserContext['browser']) {
   await guest.goto(`/?transport=relay&room=${code}`);
   await expect(host.getByTestId('board')).toBeVisible({ timeout: 20000 });
   await expect(guest.getByTestId('board')).toBeVisible({ timeout: 20000 });
+  await Promise.all([
+    host.evaluate(() => document.fonts.ready),
+    guest.evaluate(() => document.fonts.ready),
+  ]);
   return { hostCtx, guestCtx, host, guest };
 }
 

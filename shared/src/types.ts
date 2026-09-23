@@ -40,9 +40,9 @@ const SAFETY_LIMITS = {
 
 /** Named lobby presets. `Normal` is the default (mobile-friendly). */
 export const CONFIG_PRESETS = {
-  quick: { gridSize: 5, sheetCount: 20 },
-  normal: { gridSize: 8, sheetCount: 30 },
-  marathon: { gridSize: 10, sheetCount: 30 },
+  quick: { gridSize: 6, sheetCount: 20 },
+  normal: { gridSize: 10, sheetCount: 30 },
+  marathon: { gridSize: 12, sheetCount: 30 },
 } as const satisfies Record<string, Partial<GameConfig>>;
 
 export type PresetName = keyof typeof CONFIG_PRESETS;

@@ -12,9 +12,9 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:5180',
     trace: 'on-first-retry',
-    viewport: { width: 430, height: 932 },
+    viewport: { width: 390, height: 844 },
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 430, height: 932 } } },
+    { name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 390, height: 844 } } },
   ],
 });

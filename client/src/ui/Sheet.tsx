@@ -8,32 +8,46 @@ interface Props {
   onPick: (value: number) => void;
   /** caller mode shows un-circled numbers as callable; searcher hunts */
   interactive: boolean;
-  /** brief wrong-click feedback target value */
-  shakeNonce?: number;
+}
+
+const HAND_FONTS = [
+  'Caveat, cursive',
+  'Patrick Hand, cursive',
+  'Schoolbell, cursive',
+  'Gloria Hallelujah, cursive',
+  'Rock Salt, cursive',
+  'Permanent Marker, cursive',
+] as const;
+
+/** Stable per sheet and number: both peers render the same handwriting treatment. */
+function visualHash(seed: number, id: number, value: number): number {
+  const key = `${seed}:${id}:${value}`;
+  let hash = 2166136261;
+  for (let i = 0; i < key.length; i++) {
+    hash ^= key.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
 }
 
 /**
- * The shared mirrored "paper". Numbers are handwritten (Caveat) and the whole
- * sheet is flipped horizontally (scaleX(-1)) so digits read backwards. Found
- * numbers get a hand-drawn rough.js circle.
+ * The shared paper keeps mirrored spatial placement while each glyph is
+ * presented upside down. Found numbers receive a hand-drawn rough.js circle.
  */
 export function Sheet({ sheet, onPick, interactive }: Props) {
   const svgRef = useRef<SVGSVGElement | null>(null);
 
-  // draw hand-drawn circles over circled numbers
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
     svg.innerHTML = '';
     const rc = rough.svg(svg);
-    const W = 1000;
-    const H = 1000;
+    const width = 1000;
+    const height = 500;
     for (const n of sheet.numbers) {
       if (!n.circled) continue;
-      const cx = n.x * W;
-      const cy = n.y * H;
-      const node = rc.ellipse(cx, cy, 90, 70, {
-        stroke: '#c0392b',
+      const node = rc.ellipse(n.x * width, n.y * height, 112, 84, {
+        stroke: '#c83f36',
         strokeWidth: 3,
         roughness: 2.2,
         seed: n.id + 1,
@@ -43,27 +57,46 @@ export function Sheet({ sheet, onPick, interactive }: Props) {
   }, [sheet]);
 
   return (
-    <div className="sheet" data-testid="sheet">
+    <div className="sheet" data-testid="sheet" aria-label="Shared upside-down number sheet">
       <div className="sheet-flip">
-        <svg ref={svgRef} className="sheet-circles" viewBox="0 0 1000 1000" preserveAspectRatio="none" />
-        {sheet.numbers.map((n) => (
-          <button
-            key={n.id}
-            type="button"
-            className={`sheet-num${n.circled ? ' circled' : ''}`}
-            data-value={n.value}
-            data-testid={`num-${n.value}`}
-            disabled={n.circled || !interactive}
-            onClick={() => onPick(n.value)}
-            style={{
-              left: `${n.x * 100}%`,
-              top: `${n.y * 100}%`,
-              transform: `translate(-50%, -50%) rotate(${n.rot}deg)`,
-            }}
-          >
-            {n.value}
-          </button>
-        ))}
+        <svg
+          ref={svgRef}
+          className="sheet-circles"
+          viewBox="0 0 1000 500"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        />
+        {sheet.numbers.map((n) => {
+          const hash = visualHash(sheet.seed, n.id, n.value);
+          const rotation = 180 + Math.max(-7, Math.min(7, Math.round(n.rot * 0.4)));
+          const fontWeight = [400, 500, 600, 700][(hash >>> 5) % 4];
+          const fontSize = 27 + ((hash >>> 9) % 9);
+          const letterSpacing = (((hash >>> 13) % 7) - 3) * 0.01;
+          return (
+            <button
+              key={n.id}
+              type="button"
+              className={`sheet-num${n.circled ? ' circled' : ''}`}
+              data-value={n.value}
+              data-testid={`num-${n.value}`}
+              data-hand-font={['caveat', 'patrick', 'schoolbell', 'gloria', 'rock', 'marker'][hash % HAND_FONTS.length]}
+              disabled={n.circled || !interactive}
+              aria-label={`Number ${n.value}${n.circled ? ', already found' : ''}`}
+              onClick={() => onPick(n.value)}
+              style={{
+                left: `${n.x * 100}%`,
+                top: `${n.y * 100}%`,
+                transform: `translate(-50%, -50%) scaleX(-1) rotate(${rotation}deg)`,
+                fontFamily: HAND_FONTS[hash % HAND_FONTS.length],
+                fontSize: `${fontSize}px`,
+                fontWeight,
+                letterSpacing: `${letterSpacing}em`,
+              }}
+            >
+              {n.value}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
