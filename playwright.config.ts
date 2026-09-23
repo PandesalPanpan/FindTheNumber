@@ -10,12 +10,12 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:5180',
     trace: 'on-first-retry',
-    viewport: { width: 430, height: 932 }, // mobile-first portrait
+    viewport: { width: 390, height: 844 }, // approved mobile design reference
   },
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'], viewport: { width: 430, height: 932 } },
+      use: { ...devices['Desktop Chrome'], viewport: { width: 390, height: 844 } },
     },
   ],
   webServer: [

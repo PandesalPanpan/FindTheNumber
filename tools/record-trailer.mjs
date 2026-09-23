@@ -1,7 +1,7 @@
 // Find the Number — landing-page trailer generator.
 //
 // Drives a real two-player match in Playwright, recording the host and guest
-// pages separately (each a 430x932 phone), with a fake cursor (click ripple +
+// pages separately (each a 390x844 phone), with a fake cursor (click ripple +
 // press-and-hold glow) injected and the dev/status chrome hidden. Then ffmpeg
 // stacks the two side-by-side, speed-ramps the slow lobby/connect segment,
 // muxes a generated chiptune bed, and encodes trailer.mp4 + trailer.webm +
@@ -29,8 +29,8 @@ const CLIENT_URL = 'http://localhost:5180';
 const HEALTH_URL = 'http://localhost:8787/health';
 
 // Phone viewport (mobile-first portrait, matches playwright.config).
-const VW = 430;
-const VH = 932;
+const VW = 390;
+const VH = 844;
 const RATE = 130; // ms/cell fill — fast, snappy scribbles
 
 // Speed-ramp factors (slow lobby/connect runs faster than gameplay).
@@ -201,11 +201,11 @@ async function tap(page, locator, steps = 18) {
   await sleep(70);
   await page.mouse.up();
 }
-async function waitBanner(page, text) {
+async function waitBanner(page, text, timeout = 20000) {
   await page.waitForFunction(
     (t) => document.querySelector('[data-testid=banner]')?.textContent?.includes(t),
     text,
-    { timeout: 20000 },
+    { timeout },
   );
 }
 const td = (page, id) => page.getByTestId(id);
@@ -230,6 +230,15 @@ async function callNumber(page) {
   await num.waitFor({ state: 'visible', timeout: 10000 });
   const value = await num.getAttribute('data-value');
   await tap(page, num);
+  // Keep the animated cursor tap, but verify the caller changed phases. The
+  // scattered, rotated sheet can occasionally put another number over its
+  // center point; use Playwright's checked click if that physical tap misses.
+  try {
+    await waitBanner(page, 'HOLD', 2500);
+  } catch {
+    await num.click();
+    await waitBanner(page, 'HOLD');
+  }
   return value;
 }
 
@@ -348,12 +357,12 @@ async function main() {
     await findAndRing(host, v);
     await sleep(500);
 
-    // === Cycle 3 (match point): host calls, rapid-fills to 25 → WIN ===
+    // === Cycle 3 (match point): host calls, rapid-fills to 36 → WIN ===
     await waitBanner(host, 'YOUR TURN');
     v = await callNumber(host);
     await waitBanner(host, 'HOLD');
     await hunt(guest, v); // guest keeps "searching" but never bells
-    await scribble(host, 6, 19); // 6 + 19 = 25 cells → instant win
+    await scribble(host, 6, 30); // 6 + 30 = the Quick preset's 36 cells → instant win
     await td(host, 'end-screen').waitFor({ state: 'visible', timeout: 15000 });
 
     // hold on the WIN screen before the loop seam fades back to the start

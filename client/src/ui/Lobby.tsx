@@ -57,6 +57,7 @@ export function Lobby({ onCreate, onJoin, error, initialCode }: Props) {
   const [code, setCode] = useState(initialCode ?? '');
   const [settings, setSettings] = useState<RoomSettings>(initialSettings);
   const [advanced, setAdvanced] = useState(false);
+  const [trailerOpen, setTrailerOpen] = useState(false);
 
   const activePreset = PRESET_META.find(
     ({ name }) =>
@@ -86,13 +87,30 @@ export function Lobby({ onCreate, onJoin, error, initialCode }: Props) {
   const cells = settings.gridSize * settings.gridSize;
 
   return (
-    <div className="lobby">
-      <h1 className="title">Find the Number</h1>
-      <p className="tagline">Free 2-player online number-finding race · no install</p>
+    <main className="lobby page-shell" data-testid="lobby">
+      <header className="brand-row">
+        <span className="brand-mark" aria-hidden="true">🔔</span>
+        <span className="brand-copy">
+          <span className="eyebrow">FAST 2-PLAYER PARTY GAME</span>
+          <h1 className="title">Find the Number</h1>
+        </span>
+      </header>
 
-      <Trailer />
+      <section className="hero-card" aria-labelledby="hero-title">
+        <div className="hero-heading">
+          <h2 id="hero-title">Call. Hunt. Slap.</h2>
+          <span className="status-chip success">LIVE</span>
+        </div>
+        <p>Race your friend on the same flipped number sheet. No signup, no install.</p>
+        <ol className="game-steps" aria-label="How a round works">
+          <li className="step-call"><span>1&nbsp; CALL</span></li>
+          <li className="step-find"><span>2&nbsp; FIND</span></li>
+          <li className="step-slap"><span>3&nbsp; SLAP</span></li>
+        </ol>
+      </section>
 
       <div className="room-config" data-testid="room-config">
+        <h2 className="choose-heading">Choose a match</h2>
         <div className="preset-row" role="group" aria-label="Game length">
           {PRESET_META.map(({ name, label }) => (
             <button
@@ -113,56 +131,13 @@ export function Lobby({ onCreate, onJoin, error, initialCode }: Props) {
         <p className="muted small config-summary" data-testid="config-summary">
           {settings.gridSize}×{settings.gridSize} grid · first to fill {cells} cells
         </p>
-
-        <button
-          type="button"
-          className="advanced-toggle"
-          data-testid="advanced-toggle"
-          aria-expanded={advanced}
-          onClick={() => setAdvanced((a) => !a)}
-        >
-          {advanced ? '▾' : '▸'} Advanced
-        </button>
-
-        {advanced && (
-          <div className="advanced" data-testid="advanced">
-            <NumberField
-              label="Grid size (N×N)"
-              testid="grid-size"
-              value={settings.gridSize}
-              min={CONFIG_LIMITS.gridSize.min}
-              max={CONFIG_LIMITS.gridSize.max}
-              onChange={setField('gridSize')}
-            />
-            <NumberField
-              label="Numbers on sheet"
-              testid="sheet-count"
-              value={settings.sheetCount}
-              min={CONFIG_LIMITS.sheetCount.min}
-              max={Math.min(
-                CONFIG_LIMITS.sheetCount.max,
-                DEFAULT_CONFIG.numberMax - DEFAULT_CONFIG.numberMin + 1,
-              )}
-              onChange={setField('sheetCount')}
-            />
-            <NumberField
-              label="Fill speed (ms / cell)"
-              testid="fill-rate"
-              value={settings.fillRateMs}
-              min={CONFIG_LIMITS.fillRateMs.min}
-              max={CONFIG_LIMITS.fillRateMs.max}
-              step={10}
-              onChange={setField('fillRateMs')}
-            />
-          </div>
-        )}
       </div>
 
-      <button className="big-btn create" data-testid="create" onClick={create}>
+      <button type="button" className="big-btn create" data-testid="create" onClick={create}>
         Create a game
       </button>
 
-      <div className="divider">or join with a code</div>
+      <div className="divider">or join an existing room</div>
 
       <form
         className="join-row"
@@ -175,19 +150,75 @@ export function Lobby({ onCreate, onJoin, error, initialCode }: Props) {
           className="code-input"
           data-testid="code-input"
           placeholder="ABCDE"
+          aria-label="Room code"
           maxLength={5}
+          autoComplete="off"
+          autoCapitalize="characters"
           value={code}
           onChange={(e) => setCode(e.target.value.toUpperCase())}
         />
         <button className="big-btn join" data-testid="join" type="submit">
-          Join
+          Join game
         </button>
       </form>
 
       {error && <p className="error" data-testid="error">{error}</p>}
 
+      <button
+        type="button"
+        className="advanced-toggle"
+        data-testid="advanced-toggle"
+        aria-expanded={advanced}
+        aria-controls="advanced-settings"
+        onClick={() => setAdvanced((a) => !a)}
+      >
+        <span aria-hidden="true">{advanced ? '−' : '+'}</span>
+        Advanced settings
+      </button>
+      {advanced && (
+        <div className="advanced advanced-outside" id="advanced-settings" data-testid="advanced">
+          <NumberField
+            label="Grid size (N×N)"
+            testid="grid-size"
+            value={settings.gridSize}
+            min={CONFIG_LIMITS.gridSize.min}
+            max={CONFIG_LIMITS.gridSize.max}
+            onChange={setField('gridSize')}
+          />
+          <NumberField
+            label="Numbers on sheet"
+            testid="sheet-count"
+            value={settings.sheetCount}
+            min={CONFIG_LIMITS.sheetCount.min}
+            max={Math.min(
+              CONFIG_LIMITS.sheetCount.max,
+              DEFAULT_CONFIG.numberMax - DEFAULT_CONFIG.numberMin + 1,
+            )}
+            onChange={setField('sheetCount')}
+          />
+          <NumberField
+            label="Fill speed (ms / cell)"
+            testid="fill-rate"
+            value={settings.fillRateMs}
+            min={CONFIG_LIMITS.fillRateMs.min}
+            max={CONFIG_LIMITS.fillRateMs.max}
+            step={10}
+            onChange={setField('fillRateMs')}
+          />
+        </div>
+      )}
+
+      <details
+        className="trailer-panel"
+        data-testid="trailer-panel"
+        onToggle={(event) => setTrailerOpen(event.currentTarget.open)}
+      >
+        <summary><span>See it in action</span><span className="preview-label">Watch preview</span></summary>
+        {trailerOpen && <Trailer />}
+      </details>
+
       <section className="how-to" aria-label="How to play">
-        <h2>How to play Find the Number</h2>
+        <h2>How to play</h2>
         <p>
           Find the Number is a fast, free two-player browser game you can play
           with a friend — no download and no signup. Create a game, share the
@@ -202,7 +233,7 @@ export function Lobby({ onCreate, onJoin, error, initialCode }: Props) {
           </li>
         </ol>
       </section>
-    </div>
+    </main>
   );
 }
 
@@ -212,6 +243,7 @@ export function Lobby({ onCreate, onJoin, error, initialCode }: Props) {
 function Trailer() {
   const ref = useRef<HTMLVideoElement | null>(null);
   const [muted, setMuted] = useState(true);
+  const [ready, setReady] = useState(false);
 
   const toggle = () => {
     const v = ref.current;
@@ -226,9 +258,10 @@ function Trailer() {
     <div className="trailer">
       <video
         ref={ref}
-        className="trailer-video"
+        className={`trailer-video${ready ? ' ready' : ''}`}
         data-testid="trailer"
         poster="/trailer-poster.jpg"
+        onLoadedData={() => setReady(true)}
         autoPlay
         muted
         loop

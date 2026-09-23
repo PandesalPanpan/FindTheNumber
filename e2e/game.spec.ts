@@ -1,4 +1,5 @@
 import { test, expect, Page, BrowserContext } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
 
 interface MatchOpts {
   transport?: 'relay' | 'p2p';
@@ -59,19 +60,17 @@ async function createMatch(browser: BrowserContext['browser'], opts: MatchOpts =
   return { hostCtx, guestCtx, host, guest, code };
 }
 
-/**
- * Identify the current caller via the turn banner, waiting until exactly one
- * page LOCALLY believes it's their turn. Robust under network latency, where
- * the two peers' views settle a round-trip apart.
- */
+/** Wait until both peers agree the next round is ready before choosing a caller. */
 async function rolesNow(host: Page, guest: Page) {
   for (let i = 0; i < 160; i++) {
     const hb = (await host.getByTestId('banner').textContent()) ?? '';
     const gb = (await guest.getByTestId('banner').textContent()) ?? '';
     const hc = hb.includes('YOUR TURN');
     const gc = gb.includes('YOUR TURN');
-    if (hc && !gc) return { caller: host, searcher: guest };
-    if (gc && !hc) return { caller: guest, searcher: host };
+    const hw = hb.includes('GET READY');
+    const gw = gb.includes('GET READY');
+    if (hc && gw) return { caller: host, searcher: guest };
+    if (gc && hw) return { caller: guest, searcher: host };
     await host.waitForTimeout(50);
   }
   throw new Error('caller did not settle');
@@ -90,7 +89,8 @@ async function gridCount(page: Page) {
 async function fillBoxes(page: Page, n: number) {
   for (let k = 0; k < n; k++) {
     if (await page.getByTestId('end-screen').isVisible().catch(() => false)) return;
-    const empty = page.locator('.grid-wrap.mine .box:not(.x)').first();
+    const empty = page.locator('.grid-wrap.mine .box:not(.x):not([aria-disabled="true"])').first();
+    if (!(await empty.count())) return; // the round ended or a peer filled the grid first
     const box = await empty.boundingBox();
     if (!box) return;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -118,9 +118,10 @@ async function playRound(caller: Page, searcher: Page, boxes: number) {
     await expect(caller.getByTestId('banner')).toContainText('HOLD', { timeout: 8000 });
     await fillBoxes(caller, boxes);
 
-    // did the caller fill the grid mid-search (instant win)?
-    if (await caller.getByTestId('end-screen').isVisible().catch(() => false)) return false;
+    if (await ended(caller, searcher)) return false;
   }
+
+  if (await ended(caller, searcher)) return false;
 
   // searcher finds the number and slaps the bell (force: the armed bell pulses)
   await searcher.locator(`[data-testid=num-${num}]`).click();
@@ -145,6 +146,7 @@ async function playToWin(host: Page, guest: Page) {
   while (guard++ < 40) {
     if (await ended(host, guest)) break;
     const r = await rolesNow(host, guest);
+    if (await ended(host, guest)) break;
     const cont = await playRound(r.caller, r.searcher, 4);
     if (!cont) break;
   }
@@ -179,6 +181,45 @@ test('relay: full two-player match — calling, finding, filling, alternation, w
   const guestTitle = (await guest.locator('.end-title').textContent()) ?? '';
   const wins = [hostTitle, guestTitle].filter((t) => t.includes('win')).length;
   expect(wins).toBe(1);
+
+  const shotDir = process.env.SHOT_DIR || 'screenshots/after';
+  mkdirSync(shotDir, { recursive: true });
+  await host.screenshot({ path: `${shotDir}/16-result-host.png` });
+  await guest.screenshot({ path: `${shotDir}/17-result-guest.png` });
+
+  await host.setViewportSize({ width: 320, height: 844 });
+  const resultBounds = await host.locator('.end-card').boundingBox();
+  expect(resultBounds).toBeTruthy();
+  expect(resultBounds!.x).toBeGreaterThanOrEqual(0);
+  expect(resultBounds!.x + resultBounds!.width).toBeLessThanOrEqual(320);
+});
+
+test('opponent mini-grid shows the real row-major fill count for configured grid sizes', async ({ browser }) => {
+  const { host, guest } = await createMatch(browser, {
+    first: 'host',
+    grid: 3,
+    rate: 100,
+    count: 12,
+  });
+
+  for (const page of [host, guest]) {
+    const miniGrid = page.getByTestId('opp-grid');
+    await expect(miniGrid.locator('.opponent-mini-cell')).toHaveCount(9);
+    await expect(miniGrid.locator('.opponent-mini-cell.filled')).toHaveCount(0);
+    await expect(miniGrid).toHaveAttribute('aria-label', /0 of 9 boxes filled/);
+  }
+
+  const number = (await host.locator('.sheet-num:not([disabled])').first().getAttribute('data-value'))!;
+  await host.locator(`[data-testid=num-${number}]`).click();
+  await expect(guest.getByTestId('find-target')).toHaveText(number);
+  await fillBoxes(host, 2);
+
+  const guestOpponentGrid = guest.getByTestId('opp-grid');
+  await expect(guestOpponentGrid.locator('.opponent-mini-cell.filled')).toHaveCount(2);
+  await expect(guestOpponentGrid.locator('.opponent-mini-cell').nth(0)).toHaveAttribute('data-filled', 'true');
+  await expect(guestOpponentGrid.locator('.opponent-mini-cell').nth(1)).toHaveAttribute('data-filled', 'true');
+  await expect(guestOpponentGrid.locator('.opponent-mini-cell').nth(2)).toHaveAttribute('data-filled', 'false');
+  await expect(host.getByTestId('player-count')).toHaveText('2/9');
 });
 
 async function seriesSum(page: Page) {

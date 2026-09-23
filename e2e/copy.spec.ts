@@ -13,10 +13,14 @@ test('copy works when the async clipboard API is unavailable', async ({ browser 
   await page.goto('/?transport=relay&grid=4&rate=350');
   await page.getByTestId('create').click();
   await expect(page.getByTestId('room-code')).toBeVisible();
+  await expect(page.getByText('ROOM CREATED')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your table is ready.' })).toBeVisible();
+  await expect(page.getByTestId('invite-link')).toHaveValue(/\?room=/);
 
   // locate by class (the accessible name changes to "Copied" after the click)
-  const btn = page.locator('button.big-btn.join');
+  const btn = page.getByTestId('copy-invite');
   await btn.click();
   await expect(btn).toContainText('Copied', { timeout: 3000 });
+  await expect(page.getByTestId('copy-feedback')).toContainText('Invite link copied');
   await ctx.close();
 });
