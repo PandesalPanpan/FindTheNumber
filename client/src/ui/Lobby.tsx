@@ -243,7 +243,6 @@ export function Lobby({ onCreate, onJoin, error, initialCode }: Props) {
 function Trailer() {
   const ref = useRef<HTMLVideoElement | null>(null);
   const [muted, setMuted] = useState(true);
-  const [ready, setReady] = useState(false);
 
   const toggle = () => {
     const v = ref.current;
@@ -258,10 +257,11 @@ function Trailer() {
     <div className="trailer">
       <video
         ref={ref}
-        className={`trailer-video${ready ? ' ready' : ''}`}
+        className="trailer-video"
         data-testid="trailer"
         poster="/trailer-poster.jpg"
-        onLoadedData={() => setReady(true)}
+        width={780}
+        height={844}
         autoPlay
         muted
         loop
@@ -272,16 +272,18 @@ function Trailer() {
         <source src="/trailer.webm" type="video/webm" />
         <source src="/trailer.mp4" type="video/mp4" />
       </video>
-      <button
-        type="button"
-        className="trailer-mute"
-        data-testid="trailer-mute"
-        aria-pressed={!muted}
-        aria-label={muted ? 'Unmute teaser' : 'Mute teaser'}
-        onClick={toggle}
-      >
-        {muted ? '🔇 Tap for sound' : '🔊 Sound on'}
-      </button>
+      <div className="trailer-controls">
+        <button
+          type="button"
+          className="trailer-mute"
+          data-testid="trailer-mute"
+          aria-pressed={!muted}
+          aria-label={muted ? 'Unmute teaser' : 'Mute teaser'}
+          onClick={toggle}
+        >
+          {muted ? '🔇 Tap for sound' : '🔊 Sound on'}
+        </button>
+      </div>
     </div>
   );
 }
