@@ -8,6 +8,7 @@ export function GameBoard({ g }: { g: GameView }) {
   const size = s.config.gridSize;
   const callerPickingMine = g.isCaller && g.activeNumber === null;
   const searcherHunting = g.isSearcher && g.activeNumber !== null;
+  const searcherArmed = searcherHunting && g.bellArmed;
   const sheetInteractive = callerPickingMine || searcherHunting;
 
   let state: 'call' | 'fill' | 'waiting' | 'find';
@@ -28,20 +29,34 @@ export function GameBoard({ g }: { g: GameView }) {
   } else {
     state = 'find';
     bannerTitle = 'FIND IT';
-    bannerText = `Find ${g.activeNumber} on the upside-down sheet`;
+    bannerText = 'Search the upside-down sheet';
   }
 
-  const onPick = (value: number) => {
-    if (callerPickingMine) g.callNumber(value);
-    else if (searcherHunting) g.clickFind(value);
+  const onPick = (value: number): 'wrong' | 'correct' | 'ignored' => {
+    if (callerPickingMine) {
+      g.callNumber(value);
+      return 'ignored';
+    }
+    if (searcherHunting) return g.clickFind(value);
+    return 'ignored';
   };
 
   let bellText: string;
-  if (g.bellArmed && g.activeNumber !== null) bellText = 'SLAP THE BELL NOW';
-  else if (searcherHunting) bellText = 'Find the target to arm the bell';
+  if (searcherArmed) bellText = 'SLAP THE BELL NOW';
+  else if (searcherHunting) bellText = `Find ${g.activeNumber} to arm the bell`;
   else if (g.isCaller && g.activeNumber !== null) bellText = 'Hold your boxes while they search';
   else if (g.isCaller) bellText = 'Call a number to start the round';
-  else bellText = 'The bell arms when you find the number';
+  else bellText = 'Your opponent is choosing a number';
+
+  const bellLabel = searcherArmed && g.activeNumber !== null
+    ? `Target ${g.activeNumber} found. Slap the bell now.`
+    : searcherHunting
+      ? `Target number ${g.activeNumber}. Find ${g.activeNumber} to arm the bell.`
+      : g.isCaller && g.activeNumber !== null
+        ? 'Caller status. Hold your boxes while they search.'
+        : g.isCaller
+          ? 'Caller status. Call a number to start the round.'
+          : 'Waiting for your opponent to choose a number.';
 
   return (
     <main className="game-page" data-testid="board">
@@ -69,11 +84,7 @@ export function GameBoard({ g }: { g: GameView }) {
 
         <section className={`turn-banner ${state}`} data-testid="banner" aria-label="Your current task" aria-live="polite">
           <strong className="turn-title">{bannerTitle}</strong>
-          <span className="turn-copy">
-            {searcherHunting ? (
-              <>Find <span className="turn-target" data-testid="find-target">{g.activeNumber}</span> on the upside-down sheet</>
-            ) : bannerText}
-          </span>
+          <span className="turn-copy">{bannerText}</span>
         </section>
 
         <OpponentMiniGrid
@@ -86,14 +97,16 @@ export function GameBoard({ g }: { g: GameView }) {
           sheet={s.sheet}
           onPick={onPick}
           interactive={sheetInteractive}
+          feedbackScope={g.activeNumber}
           previewCircledValue={g.bellArmed ? g.activeNumber : null}
         />
 
         <Bell
           text={bellText}
           number={searcherHunting ? g.activeNumber : null}
-          armed={g.bellArmed}
+          armed={searcherArmed}
           interactive={searcherHunting}
+          ariaLabel={bellLabel}
           onRing={g.ringBell}
         />
 

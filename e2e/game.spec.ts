@@ -289,7 +289,7 @@ test('relay: rematch keeps a running series tally', async ({ browser }) => {
   expect(await seriesSum(guest)).toBe(2);
 });
 
-test('relay: wrong number does not arm the bell', async ({ browser }) => {
+test('relay: target lives at the bell and wrong/correct taps give local, repeatable feedback', async ({ browser }, testInfo) => {
   const { host, guest } = await createMatch(browser);
   const { caller, searcher } = await rolesNow(host, guest);
 
@@ -299,20 +299,80 @@ test('relay: wrong number does not arm the bell', async ({ browser }) => {
     .getAttribute('data-value'))!;
   await tapNumber(caller, num);
   await expect(searcher.getByTestId('find-target')).toContainText(num);
+  await expect(searcher.getByTestId('banner')).toContainText('Search the upside-down sheet');
+  await expect(searcher.getByTestId('banner')).not.toContainText(num);
+  await expect(searcher.getByTestId('bell')).toBeDisabled();
+  await expect(searcher.getByTestId('bell')).toHaveAttribute(
+    'aria-label',
+    `Target number ${num}. Find ${num} to arm the bell.`,
+  );
+  await searcher.screenshot({ path: testInfo.outputPath('gameplay-target-at-bell.png') });
 
   // click a DIFFERENT number on the searcher's sheet
   const wrong = await searcher
-    .locator(`.sheet-num:not([disabled])`)
-    .filter({ hasNotText: num })
+    .locator(`.sheet-num:not([disabled]):not([data-value="${num}"])`)
     .first()
     .getAttribute('data-value');
-  if (wrong) await tapNumber(searcher, wrong);
+  expect(wrong).toBeTruthy();
+  const wrongButton = searcher.getByTestId(`num-${wrong}`);
+  const otherButton = searcher.locator(`.sheet-num:not([data-value="${wrong}"])`).first();
+
+  await tapNumber(searcher, wrong!);
+  await expect(wrongButton).toHaveAttribute('data-feedback', 'wrong');
+  expect(await wrongButton.locator('.sheet-glyph').evaluate((node) => getComputedStyle(node).animationName))
+    .toBe('wrong-number');
+  const firstWrongSequence = await wrongButton.getAttribute('data-feedback-seq');
+  expect(firstWrongSequence).toBeTruthy();
+  await tapNumber(searcher, wrong!);
+  const secondWrongSequence = await wrongButton.getAttribute('data-feedback-seq');
+  expect(secondWrongSequence).toBeTruthy();
+  expect(secondWrongSequence).not.toBe(firstWrongSequence);
+  await wrongButton.screenshot({ path: testInfo.outputPath('wrong-number-feedback.png') });
+  await expect(otherButton).not.toHaveAttribute('data-feedback', 'wrong');
 
   await expect(searcher.getByTestId('bell')).toBeDisabled();
 
-  // clicking the correct one arms it
+  // A correct tap replaces the wrong transient, draws the existing rough circle,
+  // and makes the real Bell button available in the same interaction.
   await tapNumber(searcher, num);
+  const correctButton = searcher.getByTestId(`num-${num}`);
+  await expect(correctButton).toHaveAttribute('data-feedback', 'correct');
+  expect(await correctButton.locator('.sheet-glyph').evaluate((node) => getComputedStyle(node).animationName))
+    .toBe('correct-number');
+  await searcher.screenshot({ path: testInfo.outputPath('gameplay-correct-found.png') });
+  await expect(correctButton).toHaveClass(/circled/);
+  await expect(searcher.locator('.sheet-circles .target-circle-reveal')).toHaveCount(1);
   await expect(searcher.getByTestId('bell')).toBeEnabled();
+  expect(await searcher.getByTestId('bell').evaluate((node) => getComputedStyle(node).animationName))
+    .toBe('bell-activate');
+  await expect(searcher.getByTestId('bell-target')).toHaveText(`TARGET ${num} FOUND`);
+  await expect(searcher.getByTestId('bell-status')).toHaveText('SLAP THE BELL NOW');
+  await expect(searcher.getByTestId('bell')).toHaveAttribute(
+    'aria-label',
+    `Target ${num} found. Slap the bell now.`,
+  );
+  await searcher.emulateMedia({ reducedMotion: 'reduce' });
+  const reducedMotionState = await searcher.evaluate(() => ({
+    numberAnimation: getComputedStyle(document.querySelector('.sheet-num.feedback-correct .sheet-glyph')!).animationName,
+    bellAnimation: getComputedStyle(document.querySelector('.bell.armed')!).animationName,
+    circleDash: getComputedStyle(document.querySelector('.target-circle-reveal path')!).strokeDasharray,
+  }));
+  expect(reducedMotionState.numberAnimation).toBe('none');
+  expect(reducedMotionState.bellAnimation).toBe('none');
+  expect(reducedMotionState.circleDash).toBe('none');
+
+  // Caller selections remain calls, with no find feedback. Ringing clears all
+  // transient number feedback before the next turn begins.
+  await expect(caller.getByTestId(`num-${num}`)).not.toHaveAttribute('data-feedback');
+  await searcher.getByTestId('bell').click();
+  await expect(wrongButton).not.toHaveAttribute('data-feedback');
+  await expect(correctButton).not.toHaveAttribute('data-feedback');
+  const next = await rolesNow(host, guest);
+  const nextNumber = (await next.caller.locator('.sheet-num:not([disabled])').first().getAttribute('data-value'))!;
+  await tapNumber(next.caller, nextNumber);
+  await expect(next.searcher.getByTestId('find-target')).toHaveText(nextNumber);
+  await expect(wrongButton).not.toHaveAttribute('data-feedback');
+  await expect(correctButton).not.toHaveAttribute('data-feedback');
 });
 
 test('relay: grace expiry ends the match when a peer leaves', async ({ browser }) => {

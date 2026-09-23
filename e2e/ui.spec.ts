@@ -1,5 +1,56 @@
 import { test, expect } from '@playwright/test';
 
+test('expanded lobby trailer preserves the full source ratio from phone to desktop widths', async ({ page }, testInfo) => {
+  await page.goto('/');
+  const panel = page.getByTestId('trailer-panel');
+  await panel.locator('summary').click();
+  await expect(panel).toHaveJSProperty('open', true);
+  const video = panel.getByTestId('trailer');
+  await expect(video).toBeVisible();
+  await expect.poll(() => video.evaluate((node) => (node as HTMLVideoElement).videoWidth)).toBe(780);
+  await expect.poll(() => video.evaluate((node) => (node as HTMLVideoElement).videoHeight)).toBe(844);
+
+  const poster = await page.evaluate(async () => {
+    const image = new Image();
+    image.src = '/trailer-poster.jpg';
+    await image.decode();
+    return { width: image.naturalWidth, height: image.naturalHeight };
+  });
+  expect(poster).toEqual({ width: 780, height: 844 });
+
+  for (const width of [320, 390, 430, 768, 1280]) {
+    await page.setViewportSize({ width, height: width < 600 ? 844 : 900 });
+    await expect(panel).toHaveJSProperty('open', true);
+    const geometry = await page.evaluate(() => {
+      const videoNode = document.querySelector<HTMLVideoElement>('[data-testid="trailer"]')!;
+      const panelNode = document.querySelector<HTMLElement>('.trailer')!;
+      const controls = document.querySelector<HTMLElement>('.trailer-controls')!;
+      const mute = document.querySelector<HTMLElement>('[data-testid="trailer-mute"]')!;
+      const video = videoNode.getBoundingClientRect();
+      const muteBox = mute.getBoundingClientRect();
+      return {
+        viewportWidth: window.innerWidth,
+        documentWidth: document.documentElement.scrollWidth,
+        panelWidth: panelNode.getBoundingClientRect().width,
+        videoWidth: video.width,
+        videoHeight: video.height,
+        controlsTop: controls.getBoundingClientRect().top,
+        muteTop: muteBox.top,
+        videoBottom: video.bottom,
+      };
+    });
+
+    expect(geometry.documentWidth, `horizontal overflow at ${width}px`).toBeLessThanOrEqual(width);
+    expect(geometry.panelWidth).toBeLessThanOrEqual(width);
+    expect(geometry.videoWidth).toBeGreaterThan(0);
+    expect(geometry.videoHeight).toBeGreaterThan(0);
+    expect(geometry.videoWidth / geometry.videoHeight).toBeCloseTo(195 / 211, 2);
+    expect(geometry.controlsTop).toBeGreaterThanOrEqual(geometry.videoBottom);
+    expect(geometry.muteTop).toBeGreaterThanOrEqual(geometry.videoBottom);
+    await panel.locator('.trailer').screenshot({ path: testInfo.outputPath(`trailer-${width}.png`) });
+  }
+});
+
 test('lobby presets, advanced settings, create, and manual join retain live game config', async ({ browser }) => {
   const hostContext = await browser.newContext();
   const guestContext = await browser.newContext();
